@@ -64,3 +64,4 @@ or use an environment variable approach with a backend.
 | Pricing    | Rate calculator + lender matrix + AI lock recommendation |
 | Contacts   | Realtor, lender, title, inspector directory |
 | Reports    | Pipeline analytics + AI executive summary |
+# jammie-crm
