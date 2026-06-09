@@ -65,3 +65,4 @@ or use an environment variable approach with a backend.
 | Contacts   | Realtor, lender, title, inspector directory |
 | Reports    | Pipeline analytics + AI executive summary |
 # jammie-crm
+# jammie-crm
