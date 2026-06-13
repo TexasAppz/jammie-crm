@@ -1,69 +1,16 @@
-# Jammie Mortgage CRM
+# React + Vite
 
-A full-featured Mortgage Loan Originator (MLO) CRM built with React + Vite.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Quick Start
+Currently, two official plugins are available:
 
-```bash
-# 1. Install dependencies
-npm install
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-# 2. Start the dev server
-npm run dev
+## React Compiler
 
-# 3. Open in browser
-http://localhost:5173
-```
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## Build for Production
+## Expanding the ESLint configuration
 
-```bash
-npm run build
-npm run preview   # preview the production build locally
-```
-
-## Project Structure
-
-```
-src/
-├── data/
-│   └── db.js              # Mock database + constants (swap for Supabase here)
-├── components/
-│   ├── shared.jsx          # StatusBadge, ScoreBadge, Toast, ConfirmModal
-│   └── AISidebar.jsx       # Jammie AI chat sidebar
-├── pages/
-│   ├── DashboardPage.jsx
-│   ├── TasksPage.jsx
-│   ├── LoansPage.jsx
-│   ├── LeadsPage.jsx
-│   ├── PricingPage.jsx
-│   ├── ContactsPage.jsx
-│   └── ReportsPage.jsx
-├── styles/
-│   └── globals.css         # All global styles + CSS variables
-├── App.jsx                 # Root component + nav routing
-└── main.jsx                # React entry point
-```
-
-## AI Features
-
-All AI features call the Anthropic API directly from the browser.
-They work out of the box in Claude.ai artifacts (API key injected automatically).
-
-To use in a standalone deployment, set up a proxy server that adds your API key,
-or use an environment variable approach with a backend.
-
-## Pages
-
-| Page       | Description |
-|------------|-------------|
-| Dashboard  | KPIs, pipeline chart, rate snapshot, activity feed, hot leads |
-| Tasks      | Overdue / Today / Upcoming task manager with CRUD |
-| Loans      | Full loan pipeline table with add/edit/delete |
-| Leads      | Lead tracking with AI email drafting & scoring |
-| Pricing    | Rate calculator + lender matrix + AI lock recommendation |
-| Contacts   | Realtor, lender, title, inspector directory |
-| Reports    | Pipeline analytics + AI executive summary |
-# jammie-crm
-# jammie-crm
-# jammie-crm
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
