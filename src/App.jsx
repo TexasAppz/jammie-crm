@@ -212,6 +212,72 @@ const GlobalStyles = () => (
     .score-hot { background: #fee2e2; color: #b91c1c; }
     .score-warm { background: #fef3c7; color: #b45309; }
     .score-cold { background: #f0f9ff; color: #0369a1; }
+    /* ── MLO LOGIN ───────────────────────────────────────────── */
+    .auth-wrap { position:fixed;inset:0;background:#f0f4f8;display:flex;flex-direction:column;z-index:1000;font-family:var(--font); }
+    .auth-header { background:#0f1623;padding:14px 28px;display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(0,0,0,.3); }
+    .auth-logo { color:#fff;font-size:20px;font-weight:700;letter-spacing:-.5px; }
+    .auth-logo-sub { font-size:10px;color:#60a5fa;font-weight:500;margin-top:1px; }
+    .auth-main { flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px; }
+    .auth-card { background:#fff;border-radius:12px;width:100%;max-width:480px;box-shadow:0 8px 40px rgba(0,0,0,.1);overflow:hidden; }
+    .auth-card-hdr { background:#1e3a5f;padding:16px 28px;color:#fff;font-size:14px;font-weight:600; }
+    .auth-card-body { padding:36px 32px 32px; }
+    .auth-title { font-size:26px;font-weight:700;color:#1e2d45;margin-bottom:28px;text-align:center; }
+    .auth-field { position:relative;margin-bottom:20px; }
+    .auth-field label { position:absolute;top:-9px;left:12px;background:#fff;padding:0 4px;font-size:12px;font-weight:500;color:#4b5563;pointer-events:none; }
+    .auth-field input { width:100%;padding:16px 14px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:15px;color:#1e2d45;outline:none;transition:border-color .2s,box-shadow .2s;font-family:var(--font); }
+    .auth-field input:focus { border-color:#2563EB;box-shadow:0 0 0 3px rgba(37,99,235,.1); }
+    .auth-field .auth-pw-toggle { position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;color:#9ca3af; }
+    .auth-btn { width:100%;padding:16px;border-radius:8px;border:none;background:#2563EB;color:#fff;font-size:15px;font-weight:700;letter-spacing:.04em;cursor:pointer;transition:background .2s;margin-bottom:16px;font-family:var(--font); }
+    .auth-btn:hover { background:#1d4ed8; }
+    .auth-btn-sec { width:100%;padding:14px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;color:#1e2d45;font-size:14px;font-weight:500;cursor:pointer;transition:all .2s;font-family:var(--font); }
+    .auth-btn-sec:hover { border-color:#2563EB;color:#2563EB; }
+    .auth-link { color:#2563EB;font-weight:600;cursor:pointer;text-decoration:none; }
+    .auth-link:hover { text-decoration:underline; }
+    .auth-alert { padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:16px;display:none;align-items:center;gap:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c; }
+    .auth-alert.show { display:flex; }
+    .auth-alert.success { background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d; }
+    .auth-code-input { width:100%;padding:18px;border:1.5px solid #2563EB;border-radius:8px;font-size:24px;font-weight:600;text-align:center;color:#1e2d45;letter-spacing:.2em;outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.1);margin-bottom:12px;font-family:var(--font); }
+    .auth-phone-box { background:#f3f4f6;border:1.5px solid #e5e7eb;border-radius:8px;padding:14px 16px;font-size:16px;color:#1e2d45;margin-bottom:20px;font-family:monospace;letter-spacing:.05em; }
+    .auth-check-row { display:flex;align-items:center;gap:10px;margin-bottom:20px;cursor:pointer;font-size:13px;color:#4b5563; }
+    .auth-check-row input { width:16px;height:16px;accent-color:#2563EB;cursor:pointer;flex-shrink:0; }
+    .auth-stepper { display:flex;align-items:center;justify-content:center;margin-bottom:28px; }
+    .auth-step { display:flex;flex-direction:column;align-items:center;gap:5px; }
+    .auth-step-circle { width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid #e5e7eb;background:#fff;color:#9ca3af;transition:all .3s; }
+    .auth-step-circle.active { border-color:#2563EB;background:#2563EB;color:#fff; }
+    .auth-step-circle.done { border-color:#2563EB;background:#2563EB;color:#fff; }
+    .auth-step-label { font-size:11px;font-weight:500;color:#9ca3af;white-space:nowrap; }
+    .auth-step-label.active { color:#1e2d45;font-weight:600; }
+    .auth-step-label.done { color:#2563EB; }
+    .auth-connector { flex:1;height:2px;background:#e5e7eb;margin:0 6px;margin-bottom:18px;transition:background .3s; }
+    .auth-connector.done { background:#2563EB; }
+    .auth-terms { font-size:12px;color:#9ca3af;text-align:center;line-height:1.7;margin-top:16px; }
+    .auth-terms a { color:#2563EB;text-decoration:underline; }
+    .auth-divider { display:flex;align-items:center;gap:12px;margin:20px 0;color:#9ca3af;font-size:13px; }
+    .auth-divider::before,.auth-divider::after { content:'';flex:1;height:1px;background:#e5e7eb; }
+    .auth-borrower-box { margin-top:20px;padding:14px 16px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;text-align:center; }
+    .auth-screen { display:none; }
+    .auth-screen.active { display:block; }
+    /* ── BORROWER PORTAL ─────────────────────────────────────── */
+    .b-wrap { min-height:100vh;background:#f0f4f8;font-family:var(--font); }
+    .b-header { background:#0f1623;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:50;border-bottom:1px solid #1e2d45; }
+    .b-header-left { display:flex;align-items:center;gap:16px; }
+    .b-borrower-name { color:#e2e8f0;font-size:14px;font-weight:600; }
+    .b-advisor-pill { display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:4px 12px; }
+    .b-advisor-avatar { width:22px;height:22px;border-radius:50%;background:#2563EB;color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0; }
+    .b-advisor-text { font-size:11px;color:#94a3b8; }
+    .b-advisor-text strong { color:#e2e8f0; }
+    .b-logout-btn { padding:5px 12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:5px;color:#fca5a5;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;font-family:var(--font); }
+    .b-logout-btn:hover { background:rgba(239,68,68,.25); }
+    .b-body { max-width:900px;margin:0 auto;padding:32px 20px 80px; }
+    .b-page-title { font-size:22px;font-weight:700;color:#111827;margin-bottom:4px; }
+    .b-page-sub { font-size:13px;color:#9ca3af;margin-bottom:28px; }
+    .b-section { margin-bottom:28px; }
+    .b-section-hdr { background:#1e3a5f;color:#fff;padding:11px 20px;border-radius:8px 8px 0 0;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase; }
+    .b-section-body { background:#fff;border:1px solid #e5e4e0;border-top:none;border-radius:0 0 8px 8px;padding:22px; }
+    .b-sub-hdr { background:#f1f5f9;color:#1e3a5f;padding:7px 14px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:-22px -22px 18px;border-bottom:1px solid #e5e4e0; }
+    .b-save-bar { position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e5e4e0;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;z-index:40;box-shadow:0 -2px 12px rgba(0,0,0,.06); }
+    .b-save-info { font-size:12px;color:#9ca3af; }
+    .b-progress-bar { height:3px;background:#2563EB;transition:width .5s ease;border-radius:2px; }
     /* ── 1003 FORM ──────────────────────────────────────────── */
     .f1003-wrap { background: var(--cream); min-height: calc(100vh - 46px); }
     .f1003-topbar { background: #1e3a5f; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 46px; z-index: 40; }
@@ -2085,9 +2151,481 @@ Write a 3-paragraph executive summary with: key wins, areas needing attention, a
 }
 
 // ─────────────────────────────────────────────────────────────────
+// AUTH CONSTANTS
+// ─────────────────────────────────────────────────────────────────
+const MLO_CREDENTIALS = { email: 'demo@example.com', password: 'Demo123!' };
+const BORROWER_CREDENTIALS = { email: 'demo@example.com', password: 'Demo123!' };
+const FIXED_MFA_CODE = '123456';
+const MLO_PROFILE = { name:'Ismael Castiblanco', initials:'IC', title:'Loan Officer', nmls:'#1616977', email:'icastiblanco@phomemortgage.com', phone:'(678) 505-7898' };
+
+// ─────────────────────────────────────────────────────────────────
+// MLO LOGIN GATE
+// ─────────────────────────────────────────────────────────────────
+function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
+  const [screen, setScreen] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [error, setError] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+  const [resendSecs, setResendSecs] = useState(0);
+  const timerRef = useRef(null);
+  const [su, setSu] = useState({ accountType:'Broker', company:'', nmls:'', location:'', loCount:'', firstName:'', lastName:'', suEmail:'', phone:'', role:'', personalNmls:'', password:'', confirm:'', terms:false });
+  const updSu = (k,v) => setSu(p=>({...p,[k]:v}));
+
+  const startResend = () => {
+    setResendSecs(30);
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setResendSecs(s => { if(s<=1){clearInterval(timerRef.current);return 0;} return s-1; });
+    }, 1000);
+  };
+
+  const handleLogin = () => {
+    setError('');
+    if (!email.trim() || !password) { setError('Please enter your email and password.'); return; }
+    if (email.toLowerCase() !== MLO_CREDENTIALS.email.toLowerCase() || password !== MLO_CREDENTIALS.password) {
+      setError('Invalid email or password. Try: demo@example.com / Demo123!'); return;
+    }
+    setScreen('mfa'); startResend();
+  };
+
+  const handleMFA = () => {
+    setError('');
+    if (mfaCode !== FIXED_MFA_CODE) { setError('Incorrect code. Use: ' + FIXED_MFA_CODE); return; }
+    onAuthenticated({ name:'Ismael Castiblanco', initials:'IC', email });
+  };
+
+  const handleForgot = () => {
+    if (!forgotEmail.trim()) return;
+    setForgotSent(true);
+    setTimeout(() => { setForgotSent(false); setScreen('login'); }, 3000);
+  };
+
+  const inp = { width:'100%', padding:'16px 14px', border:'1.5px solid #e5e7eb', borderRadius:8, fontSize:15, color:'#1e2d45', outline:'none', fontFamily:"'DM Sans',sans-serif" };
+
+  return (
+    <div className="auth-wrap">
+      <div className="auth-header">
+        <div><div className="auth-logo">Jammie</div><div className="auth-logo-sub">MORTGAGE CRM</div></div>
+      </div>
+      <div className="auth-main">
+        <div className="auth-card">
+
+          {screen === 'login' && <>
+            <div className="auth-card-hdr">Log In</div>
+            <div className="auth-card-body">
+              <div className="auth-title">Log in to your account</div>
+              {error && <div className="auth-alert show">⚠ {error}</div>}
+              <div className="auth-field">
+                <label>Email ID *</label>
+                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={inp} placeholder=" " autoComplete="email"/>
+              </div>
+              <div className="auth-field" style={{position:'relative'}}>
+                <label>Password *</label>
+                <input type={showPw?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={{...inp,paddingRight:44}} placeholder=" "/>
+                <button className="auth-pw-toggle" onClick={()=>setShowPw(p=>!p)} type="button">{showPw?'👁':'🙈'}</button>
+              </div>
+              <a className="auth-link" onClick={()=>setScreen('forgot')} style={{display:'block',textAlign:'left',marginBottom:24,fontSize:14}}>Forgot Password?</a>
+              <button className="auth-btn" onClick={handleLogin}>LOGIN</button>
+              <a className="auth-link" onClick={()=>setScreen('forgot')} style={{display:'block',textAlign:'center',fontSize:14,marginBottom:20}}>Reset Your MFA</a>
+              <div style={{fontSize:12,color:'#9ca3af',textAlign:'center',lineHeight:1.7}}>
+                By logging in, you agree to the <a className="auth-link" href="#">Platform Subscription Agreement</a> and <a className="auth-link" href="#">Terms of Use</a>
+              </div>
+              <div className="auth-divider">or</div>
+              <p style={{textAlign:'center',fontSize:14,color:'#4b5563',marginBottom:16}}>Don't have an account? <a className="auth-link" onClick={()=>setScreen('signup1')}>Sign Up</a></p>
+              <div className="auth-borrower-box">
+                <div style={{fontSize:11,fontWeight:600,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Are you a Borrower?</div>
+                <a className="auth-link" onClick={onBorrowerPortal} style={{fontSize:14,cursor:'pointer'}}>Go to Borrower Portal →</a>
+              </div>
+            </div>
+          </>}
+
+          {screen === 'mfa' && <>
+            <div className="auth-card-hdr">Two-Factor Authentication</div>
+            <div className="auth-card-body">
+              <div className="auth-title" style={{fontSize:22}}>Verify Your Identity</div>
+              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:16}}>We've sent a text message to:</p>
+              <div className="auth-phone-box">XXXXXXXX7898</div>
+              {error && <div className="auth-alert show">⚠ {error}</div>}
+              <input className="auth-code-input" type="text" maxLength={6} value={mfaCode}
+                onChange={e=>setMfaCode(e.target.value.replace(/\D/g,''))}
+                onKeyDown={e=>e.key==='Enter'&&handleMFA()} placeholder="______" inputMode="numeric"/>
+              <div style={{fontSize:12,color:'#6b7280',textAlign:'center',marginBottom:12}}>Demo code: <strong>{FIXED_MFA_CODE}</strong></div>
+              <label className="auth-check-row"><input type="checkbox" defaultChecked/> Remember this device for 30 days</label>
+              <button className="auth-btn" onClick={handleMFA}>VERIFY</button>
+              <div style={{textAlign:'center',fontSize:14,color:'#4b5563',marginBottom:12}}>
+                Didn't receive a code?{' '}
+                {resendSecs > 0
+                  ? <span style={{color:'#9ca3af',fontWeight:600}}>({resendSecs}s)</span>
+                  : <a className="auth-link" onClick={()=>startResend()}>Resend</a>}
+              </div>
+              <button className="auth-btn-sec" onClick={()=>setScreen('login')}>← Back to Login</button>
+            </div>
+          </>}
+
+          {screen === 'forgot' && <>
+            <div className="auth-card-hdr">Reset Password</div>
+            <div className="auth-card-body">
+              <div className="auth-title" style={{fontSize:22}}>Reset Your Password</div>
+              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:24}}>Enter your email and we'll send a reset link.</p>
+              {forgotSent && <div className="auth-alert success show">✓ Reset link sent! Check your email.</div>}
+              <div className="auth-field">
+                <label>Email Address *</label>
+                <input type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} style={inp} placeholder=" "/>
+              </div>
+              <button className="auth-btn" onClick={handleForgot}>SEND RESET LINK</button>
+              <button className="auth-btn-sec" onClick={()=>setScreen('login')}>← Back to Login</button>
+            </div>
+          </>}
+
+          {screen === 'signup1' && <>
+            <div className="auth-card-hdr">Create Account</div>
+            <div className="auth-card-body">
+              <div className="auth-stepper">
+                <div className="auth-step"><div className="auth-step-circle active">1</div><div className="auth-step-label active">Company Info</div></div>
+                <div className="auth-connector"/>
+                <div className="auth-step"><div className="auth-step-circle">2</div><div className="auth-step-label">Personal Info</div></div>
+                <div className="auth-connector"/>
+                <div className="auth-step"><div className="auth-step-circle">3</div><div className="auth-step-label">Other Info</div></div>
+              </div>
+              <div style={{fontSize:20,fontWeight:700,color:'#1e2d45',marginBottom:20}}>Company Info</div>
+              {[['Create Account As','accountType','select',['Broker','Non-Del Correspondent','Contract Processor']],['Company Name *','company','text'],['NMLS Number *','nmls','text'],['No. of Loan Officers','loCount','select',['','1–5','6–10','11–25','26–50','51–100','100+']]].map(([lbl,key,type,opts])=>(
+                <div key={key} style={{marginBottom:14}}>
+                  <label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>{lbl}</label>
+                  {type==='select'?<select value={su[key]} onChange={e=>updSu(key,e.target.value)} style={{...inp,appearance:'none'}}>{opts.map(o=><option key={o}>{o}</option>)}</select>:<input type={type} value={su[key]} onChange={e=>updSu(key,e.target.value)} style={inp}/>}
+                </div>
+              ))}
+              {error && <div className="auth-alert show" style={{marginBottom:12}}>⚠ {error}</div>}
+              <button className="auth-btn" onClick={()=>{if(!su.company||!su.nmls){setError('Company name and NMLS required.');return;}setError('');setScreen('signup2');}}>Next →</button>
+              <p style={{textAlign:'center',fontSize:13,color:'#4b5563',marginTop:12}}>Already have an account? <a className="auth-link" onClick={()=>setScreen('login')}>Log In</a></p>
+            </div>
+          </>}
+
+          {screen === 'signup2' && <>
+            <div className="auth-card-hdr">Create Account</div>
+            <div className="auth-card-body">
+              <div className="auth-stepper">
+                <div className="auth-step"><div className="auth-step-circle done">✓</div><div className="auth-step-label done">Company Info</div></div>
+                <div className="auth-connector done"/>
+                <div className="auth-step"><div className="auth-step-circle active">2</div><div className="auth-step-label active">Personal Info</div></div>
+                <div className="auth-connector"/>
+                <div className="auth-step"><div className="auth-step-circle">3</div><div className="auth-step-label">Other Info</div></div>
+              </div>
+              <div style={{fontSize:20,fontWeight:700,color:'#1e2d45',marginBottom:20}}>Personal Info</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14}}>
+                <div><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>First Name *</label><input type="text" value={su.firstName} onChange={e=>updSu('firstName',e.target.value)} style={inp}/></div>
+                <div><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Last Name *</label><input type="text" value={su.lastName} onChange={e=>updSu('lastName',e.target.value)} style={inp}/></div>
+              </div>
+              {[['Email Address *','suEmail','email'],['Mobile Phone *','phone','tel'],['Personal NMLS #','personalNmls','text']].map(([lbl,key,type])=>(
+                <div key={key} style={{marginBottom:14}}><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>{lbl}</label><input type={type} value={su[key]} onChange={e=>updSu(key,e.target.value)} style={inp}/></div>
+              ))}
+              <div style={{marginBottom:14}}>
+                <label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Job Title / Role</label>
+                <select value={su.role} onChange={e=>updSu('role',e.target.value)} style={{...inp,appearance:'none'}}>
+                  <option value="">Select Role</option>
+                  <option>Administrator</option><option>Mortgage Loan Originator (MLO)</option>
+                  <option>Processor</option><option>Loan Officer Assistant (LOA)</option>
+                </select>
+              </div>
+              {error && <div className="auth-alert show" style={{marginBottom:12}}>⚠ {error}</div>}
+              <div style={{display:'flex',gap:10}}>
+                <button className="auth-btn-sec" onClick={()=>setScreen('signup1')}>← Back</button>
+                <button className="auth-btn" style={{margin:0}} onClick={()=>{if(!su.firstName||!su.lastName||!su.suEmail||!su.phone){setError('Fill all required fields.');return;}setError('');setScreen('signup3');}}>Next →</button>
+              </div>
+            </div>
+          </>}
+
+          {screen === 'signup3' && <>
+            <div className="auth-card-hdr">Create Account</div>
+            <div className="auth-card-body">
+              <div className="auth-stepper">
+                <div className="auth-step"><div className="auth-step-circle done">✓</div><div className="auth-step-label done">Company Info</div></div>
+                <div className="auth-connector done"/>
+                <div className="auth-step"><div className="auth-step-circle done">✓</div><div className="auth-step-label done">Personal Info</div></div>
+                <div className="auth-connector done"/>
+                <div className="auth-step"><div className="auth-step-circle active">3</div><div className="auth-step-label active">Other Info</div></div>
+              </div>
+              <div style={{fontSize:20,fontWeight:700,color:'#1e2d45',marginBottom:20}}>Other Info</div>
+              {[['Create Password *','password','password'],['Confirm Password *','confirm','password']].map(([lbl,key,type])=>(
+                <div key={key} style={{marginBottom:14}}><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>{lbl}</label><input type={type} value={su[key]} onChange={e=>updSu(key,e.target.value)} style={inp}/></div>
+              ))}
+              <label className="auth-check-row"><input type="checkbox" checked={su.terms} onChange={e=>updSu('terms',e.target.checked)}/> I agree to the <a className="auth-link" href="#">Terms of Use</a> and <a className="auth-link" href="#">Privacy Policy</a></label>
+              {error && <div className="auth-alert show" style={{marginBottom:12}}>⚠ {error}</div>}
+              <div style={{display:'flex',gap:10}}>
+                <button className="auth-btn-sec" onClick={()=>setScreen('signup2')}>← Back</button>
+                <button className="auth-btn" style={{margin:0}} onClick={()=>{
+                  if(!su.password||su.password.length<8){setError('Password must be at least 8 characters.');return;}
+                  if(su.password!==su.confirm){setError('Passwords do not match.');return;}
+                  if(!su.terms){setError('You must agree to the Terms of Use.');return;}
+                  setError('');
+                  onAuthenticated({name:`${su.firstName} ${su.lastName}`,initials:(su.firstName[0]||'')+(su.lastName[0]||''),email:su.suEmail});
+                }}>Create Account →</button>
+              </div>
+            </div>
+          </>}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BORROWER PORTAL — SCROLLABLE 1003
+// ─────────────────────────────────────────────────────────────────
+function BorrowerPortal({ borrower, onLogout }) {
+  const [formData, setFormData] = useState({
+    incomes:[], assets:[], liabilities:[], reos:[],
+    mortgageType:'', amortType:'Fixed', rate:'', salesPrice:'', baseLoan:'', financedFees:'',
+    spAddr1:'', spCity:'', spState:'', spZip:'', propType:'Single Family Residence', occupancy:'Primary Residence',
+    titleName:'', mannerHeld:'', propRights:'Fee Simple',
+  });
+  const [borrowers, setBorrowers] = useState([emptyBorrower1003('Borrower')]);
+  const [activeBIdx, setActiveBIdx] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const [scrollPct, setScrollPct] = useState(0);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const el = document.documentElement;
+      const pct = Math.min(100, Math.round((el.scrollTop / (el.scrollHeight - el.clientHeight || 1)) * 100));
+      setScrollPct(pct);
+    };
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const handleSave = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
+
+  const SectionWrap = ({ num, title, children }) => (
+    <div className="b-section">
+      <div className="b-section-hdr">Section {num} — {title}</div>
+      <div className="b-section-body">{children}</div>
+    </div>
+  );
+
+  return (
+    <div className="b-wrap">
+      <div style={{position:'fixed',top:0,left:0,right:0,zIndex:100,height:3}}>
+        <div className="b-progress-bar" style={{width:`${scrollPct}%`}}/>
+      </div>
+      <div className="b-header">
+        <div className="b-header-left">
+          <div style={{color:'#fff',fontSize:17,fontWeight:700,letterSpacing:'-.5px'}}>Jammie <span style={{fontSize:9,color:'#60a5fa',fontWeight:500}}>MORTGAGE</span></div>
+          <div className="b-borrower-name">👤 {borrower.name}</div>
+          <div className="b-advisor-pill">
+            <div className="b-advisor-avatar">{MLO_PROFILE.initials}</div>
+            <div className="b-advisor-text">Advisor: <strong>{MLO_PROFILE.name}</strong> · {MLO_PROFILE.phone}</div>
+          </div>
+        </div>
+        <button className="b-logout-btn" onClick={onLogout}>Sign Out</button>
+      </div>
+      <div className="b-body">
+        <div className="b-page-title">Uniform Residential Loan Application — 1003</div>
+        <div className="b-page-sub">Complete all sections below and save when done. Scroll down to continue through each section.</div>
+        <SectionWrap num={1} title="Personal Information"><Section1PersonalInfo borrowers={borrowers} setBorrowers={setBorrowers} activeBIdx={activeBIdx} setActiveBIdx={setActiveBIdx}/></SectionWrap>
+        <SectionWrap num={2} title="Employment & Income"><Section2Employment data={formData} setData={setFormData}/></SectionWrap>
+        <SectionWrap num={3} title="Assets Information"><Section3Assets data={formData} setData={setFormData}/></SectionWrap>
+        <SectionWrap num={4} title="Liabilities Information"><Section4Liabilities data={formData} setData={setFormData}/></SectionWrap>
+        <SectionWrap num={5} title="Real Estate Owned"><Section5REO data={formData} setData={setFormData}/></SectionWrap>
+        <SectionWrap num={6} title="Loan Information"><Section6LoanInfo data={formData} setData={setFormData}/></SectionWrap>
+        <SectionWrap num={7} title="Housing Expenses"><Section7Housing data={formData} setData={setFormData}/></SectionWrap>
+        <SectionWrap num={8} title="Details of Transaction"><Section8DOT data={formData} setData={setFormData} loanData={formData}/></SectionWrap>
+        <SectionWrap num={9} title="Declarations"><Section9Declarations data={formData} setData={setFormData} borrowers={borrowers}/></SectionWrap>
+        <SectionWrap num={10} title="Government Monitoring"><Section10GovtMonitoring data={formData} setData={setFormData} borrowers={borrowers}/></SectionWrap>
+      </div>
+      <div className="b-save-bar">
+        <div className="b-save-info">
+          📋 1003 Application · <strong>{borrower.name}</strong>
+          <span style={{marginLeft:12,color:'#6b7280'}}>Progress: {scrollPct}% scrolled</span>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {saved && <span style={{fontSize:12,color:'#15803d',fontWeight:600}}>✓ Saved!</span>}
+          <button onClick={handleSave} className="btn btn-primary" style={{padding:'7px 18px'}}>💾 Save Application</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BORROWER LOGIN
+// ─────────────────────────────────────────────────────────────────
+function BorrowerLogin({ onAuthenticated, onMLOPortal }) {
+  const [screen, setScreen] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [verifyCode, setVerifyCode] = useState('');
+  const [error, setError] = useState('');
+  const [resendSecs, setResendSecs] = useState(0);
+  const timerRef = useRef(null);
+  const [bFirst, setBFirst] = useState('');
+  const [bLast, setBLast] = useState('');
+  const [bEmail, setBEmail] = useState('');
+  const [bPw, setBPw] = useState('');
+  const [captcha, setCaptcha] = useState(false);
+
+  const startResend = () => {
+    setResendSecs(30);
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setResendSecs(s => { if(s<=1){clearInterval(timerRef.current);return 0;} return s-1; });
+    }, 1000);
+  };
+
+  const inp = { width:'100%', padding:'16px 14px', border:'1.5px solid #e5e7eb', borderRadius:8, fontSize:15, color:'#1e2d45', outline:'none', fontFamily:"'DM Sans',sans-serif" };
+
+  const handleLogin = () => {
+    setError('');
+    if (!email.trim()||!password) { setError('Please enter your email and password.'); return; }
+    if (email.toLowerCase() !== BORROWER_CREDENTIALS.email.toLowerCase() || password !== BORROWER_CREDENTIALS.password) {
+      setError('Invalid email or password. Try: demo@example.com / Demo123!'); return;
+    }
+    setScreen('mfa'); startResend();
+  };
+
+  const handleMFA = () => {
+    setError('');
+    if (mfaCode !== FIXED_MFA_CODE) { setError('Incorrect code. Use: ' + FIXED_MFA_CODE); return; }
+    onAuthenticated({ name: bFirst && bLast ? `${bFirst} ${bLast}` : 'Demo Borrower', email });
+  };
+
+  const handleSignup = () => {
+    setError('');
+    if (!bFirst||!bLast||!bEmail||!bPw) { setError('Please fill all required fields.'); return; }
+    if (!captcha) { setError('Please complete the reCAPTCHA.'); return; }
+    if (bPw.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    setScreen('verify');
+  };
+
+  const handleVerify = () => {
+    setError('');
+    if (verifyCode !== FIXED_MFA_CODE) { setError('Incorrect code. Use: ' + FIXED_MFA_CODE); return; }
+    onAuthenticated({ name:`${bFirst} ${bLast}`, email:bEmail });
+  };
+
+  return (
+    <div className="auth-wrap">
+      <div className="auth-header">
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div><div className="auth-logo">Jammie</div><div className="auth-logo-sub">MORTGAGE CRM</div></div>
+          <span style={{background:'rgba(37,99,235,.3)',color:'#93c5fd',fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,border:'1px solid rgba(37,99,235,.4)'}}>Borrower Portal</span>
+        </div>
+        <a onClick={onMLOPortal} style={{color:'#94a3b8',fontSize:13,textDecoration:'none',cursor:'pointer'}}>← MLO Login</a>
+      </div>
+      <div className="auth-main">
+        <div className="auth-card">
+
+          {screen === 'login' && <>
+            <div className="auth-card-hdr">Borrower Portal — Log In</div>
+            <div className="auth-card-body">
+              <div className="auth-title">Welcome Back</div>
+              <div style={{fontSize:13,color:'#4b5563',textAlign:'center',marginBottom:20}}>Completing your application with <strong>{MLO_PROFILE.name}</strong></div>
+              {error && <div className="auth-alert show">⚠ {error}</div>}
+              <div className="auth-field"><label>Email Address *</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={inp} placeholder=" "/></div>
+              <div className="auth-field" style={{position:'relative'}}>
+                <label>Password *</label>
+                <input type={showPw?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={{...inp,paddingRight:44}} placeholder=" "/>
+                <button className="auth-pw-toggle" onClick={()=>setShowPw(p=>!p)} type="button">{showPw?'👁':'🙈'}</button>
+              </div>
+              <button className="auth-btn" onClick={handleLogin}>LOG IN</button>
+              <div style={{textAlign:'center',fontSize:14,color:'#4b5563'}}>New borrower? <a className="auth-link" onClick={()=>setScreen('signup')}>Apply Now</a></div>
+            </div>
+          </>}
+
+          {screen === 'signup' && <>
+            <div className="auth-card-hdr">Borrower Portal — Apply Now</div>
+            <div className="auth-card-body">
+              <div className="auth-title" style={{fontSize:24}}>Apply Now</div>
+              <div style={{fontSize:13,color:'#4b5563',textAlign:'center',marginBottom:16}}>Already have an account? <a className="auth-link" onClick={()=>setScreen('login')}>Sign In</a></div>
+              <div style={{border:'1.5px solid #e5e7eb',borderRadius:10,padding:'14px 16px',display:'flex',alignItems:'center',gap:14,marginBottom:20,background:'#f8fafc'}}>
+                <div style={{width:52,height:52,borderRadius:'50%',background:'#6b7fd7',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,flexShrink:0}}>{MLO_PROFILE.initials}</div>
+                <div>
+                  <div style={{fontSize:11,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:2}}>Your Mortgage Advisor</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'#1e2d45'}}>{MLO_PROFILE.name}</div>
+                  <div style={{fontSize:12,color:'#6b7280'}}>{MLO_PROFILE.title} · {MLO_PROFILE.nmls}</div>
+                  <div style={{fontSize:12,color:'#6b7280'}}>{MLO_PROFILE.phone}</div>
+                </div>
+              </div>
+              {error && <div className="auth-alert show" style={{marginBottom:12}}>⚠ {error}</div>}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14}}>
+                <div><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>First Name *</label><input type="text" value={bFirst} onChange={e=>setBFirst(e.target.value)} style={inp}/></div>
+                <div><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Last Name *</label><input type="text" value={bLast} onChange={e=>setBLast(e.target.value)} style={inp}/></div>
+              </div>
+              <div style={{marginBottom:14}}><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Email *</label><input type="email" value={bEmail} onChange={e=>setBEmail(e.target.value)} style={inp}/></div>
+              <div style={{marginBottom:20}}><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Choose Password *</label><input type="password" value={bPw} onChange={e=>setBPw(e.target.value)} style={inp}/></div>
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:500,color:'#1e2d45',marginBottom:8}}>Please check the box below to proceed *</div>
+                <div onClick={()=>setCaptcha(p=>!p)} style={{border:`1.5px solid ${captcha?'#16a34a':'#e5e7eb'}`,borderRadius:8,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',background:captcha?'#f0fdf4':'#f9fafb',cursor:'pointer'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <div style={{width:22,height:22,borderRadius:3,border:`2px solid ${captcha?'#16a34a':'#d1d5db'}`,background:captcha?'#16a34a':'#fff',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:14,fontWeight:700}}>{captcha?'✓':''}</div>
+                    <span style={{fontSize:14,color:'#1e2d45',fontWeight:500}}>I'm not a robot</span>
+                  </div>
+                  <div style={{textAlign:'right'}}><div style={{fontSize:22}}>🔄</div><div style={{fontSize:10,color:'#9ca3af'}}>reCAPTCHA</div></div>
+                </div>
+              </div>
+              <button className="auth-btn" onClick={handleSignup}>CREATE ACCOUNT</button>
+              <div className="auth-terms">By creating an account, you agree to our <a href="#">Terms of Service</a></div>
+            </div>
+          </>}
+
+          {screen === 'mfa' && <>
+            <div className="auth-card-hdr">Two-Factor Authentication</div>
+            <div className="auth-card-body">
+              <div className="auth-title" style={{fontSize:22}}>Verify Your Identity</div>
+              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:16}}>We've sent a text message to:</p>
+              <div className="auth-phone-box">XXXXXXXX9999</div>
+              {error && <div className="auth-alert show">⚠ {error}</div>}
+              <input className="auth-code-input" type="text" maxLength={6} value={mfaCode} onChange={e=>setMfaCode(e.target.value.replace(/\D/g,''))} onKeyDown={e=>e.key==='Enter'&&handleMFA()} placeholder="______" inputMode="numeric"/>
+              <div style={{fontSize:12,color:'#6b7280',textAlign:'center',marginBottom:12}}>Demo code: <strong>{FIXED_MFA_CODE}</strong></div>
+              <label className="auth-check-row"><input type="checkbox" defaultChecked/> Remember this device for 30 days</label>
+              <button className="auth-btn" onClick={handleMFA}>VERIFY</button>
+              <div style={{textAlign:'center',fontSize:14,color:'#4b5563',marginBottom:12}}>
+                Didn't receive a code?{' '}
+                {resendSecs > 0 ? <span style={{color:'#9ca3af',fontWeight:600}}>({resendSecs}s)</span> : <a className="auth-link" onClick={()=>startResend()}>Resend</a>}
+              </div>
+              <button className="auth-btn-sec" onClick={()=>setScreen('login')}>← Back</button>
+            </div>
+          </>}
+
+          {screen === 'verify' && <>
+            <div className="auth-card-hdr">Verify Your Account</div>
+            <div className="auth-card-body">
+              <div className="auth-title" style={{fontSize:22}}>Check Your Phone</div>
+              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:16}}>We've sent a 6-digit code to activate your account.</p>
+              <div className="auth-phone-box">XXXXXXXX0000</div>
+              {error && <div className="auth-alert show">⚠ {error}</div>}
+              <input className="auth-code-input" type="text" maxLength={6} value={verifyCode} onChange={e=>setVerifyCode(e.target.value.replace(/\D/g,''))} onKeyDown={e=>e.key==='Enter'&&handleVerify()} placeholder="______" inputMode="numeric"/>
+              <div style={{fontSize:12,color:'#6b7280',textAlign:'center',marginBottom:12}}>Demo code: <strong>{FIXED_MFA_CODE}</strong></div>
+              <button className="auth-btn" onClick={handleVerify}>VERIFY ACCOUNT</button>
+              <div style={{textAlign:'center',fontSize:13,color:'#4b5563'}}>Didn't receive a code? <a className="auth-link">Resend</a></div>
+            </div>
+          </>}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────
 export default function App() {
+  // 'none' | 'mlo' | 'borrower'
+  const [portalMode, setPortalMode] = useState(() => {
+    // Check URL param: ?portal=borrower → borrower portal
+    const p = new URLSearchParams(window.location.search).get('portal');
+    return p === 'borrower' ? 'borrower' : 'mlo';
+  });
+
+  const [mloUser, setMloUser] = useState(null);       // null = not logged in
+  const [borrowerUser, setBorrowerUser] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [toast, setToast] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
@@ -2096,12 +2634,29 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
 
   useEffect(() => {
-    db.loans.getAll().then(setLoans);
-    db.leads.getAll().then(setLeads);
-    db.tasks.getAll().then(setTasks);
-  }, []);
+    if (mloUser) {
+      db.loans.getAll().then(setLoans);
+      db.leads.getAll().then(setLeads);
+      db.tasks.getAll().then(setTasks);
+    }
+  }, [mloUser]);
 
   const showToast = useCallback(msg => setToast(msg), []);
+
+  // ── BORROWER PORTAL MODE ──────────────────────────
+  if (portalMode === 'borrower') {
+    if (!borrowerUser) return <><GlobalStyles/><BorrowerLogin onAuthenticated={setBorrowerUser} onMLOPortal={()=>setPortalMode('mlo')}/></>;
+    return (
+      <>
+        <GlobalStyles/>
+        <BorrowerPortal borrower={borrowerUser} onLogout={()=>setBorrowerUser(null)}/>
+        {toast && <Toast msg={toast} onDone={()=>setToast(null)}/>}
+      </>
+    );
+  }
+
+  // ── MLO PORTAL MODE ───────────────────────────────
+  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser} onBorrowerPortal={()=>setPortalMode('borrower')}/></>;
 
   const navItems = [
     {id:'dashboard',label:'Dashboard'},
@@ -2135,22 +2690,24 @@ export default function App() {
             onClick={()=>setAiOpen(p=>!p)}>
             ✨ Jammie AI
           </button>
-          <div className="nav-avatar">IC</div>
+          <div style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>setMloUser(null)} title="Sign Out">
+            <div className="nav-avatar">{mloUser.initials||'IC'}</div>
+            <span style={{fontSize:11,color:'#94a3b8'}}>Sign Out</span>
+          </div>
         </div>
       </nav>
 
       <div style={{marginRight: aiOpen ? 360 : 0, transition:'margin 0.25s cubic-bezier(0.4,0,0.2,1)'}}>
         {page === 'dashboard' && <DashboardPage loans={loans} leads={leads} tasks={tasks} />}
-        {page === 'tasks' && <TasksPage showToast={showToast} />}
-        {page === 'loans' && <LoansPage showToast={showToast} />}
-        {page === 'leads' && <LeadsPage showToast={showToast} />}
-        {page === 'pricing' && <PricingPage showToast={showToast} />}
-        {page === 'contacts' && <ContactsPage showToast={showToast} />}
-        {page === 'reports' && <ReportsPage loans={loans} leads={leads} />}
+        {page === 'tasks'     && <TasksPage showToast={showToast} />}
+        {page === 'loans'     && <LoansPage showToast={showToast} />}
+        {page === 'leads'     && <LeadsPage showToast={showToast} />}
+        {page === 'pricing'   && <PricingPage showToast={showToast} />}
+        {page === 'contacts'  && <ContactsPage showToast={showToast} />}
+        {page === 'reports'   && <ReportsPage loans={loans} leads={leads} />}
       </div>
 
       <AISidebar open={aiOpen} onClose={()=>setAiOpen(false)} context={pageContext} />
-
       {toast && <Toast msg={toast} onDone={()=>setToast(null)} />}
     </div>
   );
