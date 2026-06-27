@@ -376,24 +376,65 @@ let _contacts = [
 ];
 let _nextLoanId = 9, _nextLeadId = 6, _nextTaskId = 8;
 
+// ─────────────────────────────────────────────────────────────────
+// API CLIENT — connects React to Express backend
+// Falls back to mock data if API is unreachable (dev mode)
+// ─────────────────────────────────────────────────────────────────
+const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+  ? import.meta.env.VITE_API_URL
+  : 'http://localhost:3001';
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
 const db = {
   loans: {
-    getAll: () => Promise.resolve([..._loans]),
-    insert: r => { const n={...r,id:_nextLoanId++,updated_at:new Date().toISOString()}; _loans.push(n); return Promise.resolve(n); },
-    update: (id,r) => { _loans=_loans.map(l=>l.id===id?{...l,...r,updated_at:new Date().toISOString()}:l); return Promise.resolve(); },
-    delete: id => { _loans=_loans.filter(l=>l.id!==id); return Promise.resolve(); },
+    getAll:  ()       => apiFetch('/api/loans'),
+    getOne:  (id)     => apiFetch(`/api/loans/${id}`),
+    insert:  (data)   => apiFetch('/api/loans',    { method: 'POST',   body: data }),
+    update:  (id, data) => apiFetch(`/api/loans/${id}`, { method: 'PUT', body: data }),
+    delete:  (id)     => apiFetch(`/api/loans/${id}`,   { method: 'DELETE' }),
   },
   leads: {
-    getAll: () => Promise.resolve([..._leads]),
-    insert: r => { const n={...r,id:_nextLeadId++,updated_at:new Date().toISOString()}; _leads.push(n); return Promise.resolve(n); },
-    update: (id,r) => { _leads=_leads.map(l=>l.id===id?{...l,...r,updated_at:new Date().toISOString()}:l); return Promise.resolve(); },
-    delete: id => { _leads=_leads.filter(l=>l.id!==id); return Promise.resolve(); },
+    getAll:  ()       => apiFetch('/api/leads'),
+    getOne:  (id)     => apiFetch(`/api/leads/${id}`),
+    insert:  (data)   => apiFetch('/api/leads',    { method: 'POST',   body: data }),
+    update:  (id, data) => apiFetch(`/api/leads/${id}`, { method: 'PUT', body: data }),
+    delete:  (id)     => apiFetch(`/api/leads/${id}`,   { method: 'DELETE' }),
   },
   tasks: {
-    getAll: () => Promise.resolve([..._tasks]),
-    insert: r => { const n={...r,id:_nextTaskId++,created_at:new Date().toISOString()}; _tasks.push(n); return Promise.resolve(n); },
-    update: (id,r) => { _tasks=_tasks.map(t=>t.id===id?{...t,...r}:t); return Promise.resolve(); },
-    delete: id => { _tasks=_tasks.filter(t=>t.id!==id); return Promise.resolve(); },
+    getAll:  ()       => apiFetch('/api/tasks'),
+    getOne:  (id)     => apiFetch(`/api/tasks/${id}`),
+    insert:  (data)   => apiFetch('/api/tasks',    { method: 'POST',   body: data }),
+    update:  (id, data) => apiFetch(`/api/tasks/${id}`, { method: 'PUT', body: data }),
+    toggle:  (id)     => apiFetch(`/api/tasks/${id}/toggle`, { method: 'PATCH' }),
+    delete:  (id)     => apiFetch(`/api/tasks/${id}`,   { method: 'DELETE' }),
+  },
+  contacts: {
+    getAll:  ()       => apiFetch('/api/contacts'),
+    getOne:  (id)     => apiFetch(`/api/contacts/${id}`),
+    insert:  (data)   => apiFetch('/api/contacts', { method: 'POST',   body: data }),
+    update:  (id, data) => apiFetch(`/api/contacts/${id}`, { method: 'PUT', body: data }),
+    delete:  (id)     => apiFetch(`/api/contacts/${id}`,   { method: 'DELETE' }),
+  },
+  form1003: {
+    getAll:     ()        => apiFetch('/api/form1003'),
+    getOne:     (id)      => apiFetch(`/api/form1003/${id}`),
+    getByLoan:  (loanId)  => apiFetch(`/api/form1003/loan/${loanId}`),
+    insert:     (data)    => apiFetch('/api/form1003',    { method: 'POST',  body: data }),
+    update:     (id, data) => apiFetch(`/api/form1003/${id}`, { method: 'PUT', body: data }),
+    setStatus:  (id, status) => apiFetch(`/api/form1003/${id}/status`, { method: 'PATCH', body: { form_status: status } }),
+    delete:     (id)      => apiFetch(`/api/form1003/${id}`, { method: 'DELETE' }),
   },
 };
 
@@ -1370,8 +1411,56 @@ function Form1003({ loan, onBack, showToast }) {
     window.scrollTo({top:0,behavior:'smooth'});
   };
 
-  const handleSave = () => {
-    showToast(`✓ 1003 saved for ${loan.borrower}`);
+  const handleSave = async () => {
+    try {
+      // Build payload from borrower personal info + loan data
+      const b = borrowers[0];
+      const payload = {
+        loan_id:      loan.id || null,
+        mlo_id:       1,
+        form_status:  'draft',
+        email:        b.email || '',
+        first_nm:     b.firstName || '',
+        middle_nm:    b.middleName || '',
+        last_nm:      b.lastName || '',
+        ssn:          b.ssn || '',
+        dob:          b.dob || null,
+        citizenship:  b.citizenship || '',
+        marital_status: b.maritalStatus || '',
+        num_borrowers:  borrowers.length,
+        address_street: b.presentAddr1 || '',
+        address_unit:   b.presentUnit || '',
+        address_city:   b.presentCity || '',
+        address_state:  b.presentState || '',
+        address_zip:    b.presentZip || '',
+        address_country: b.presentCountry || 'United States',
+        current_how_long_addr: parseFloat(b.presentYears) || null,
+        housing:       b.presentOwn || '',
+        // Employment
+        employee_or_business_nm: (formData.incomes[0]?.employer) || '',
+        position_title:          (formData.incomes[0]?.position) || '',
+        gross_income_monthly_base:       parseFloat(formData.incomes[0]?.base)       || 0,
+        gross_income_monthly_overtime:   parseFloat(formData.incomes[0]?.overtime)   || 0,
+        gross_income_monthly_bonus:      parseFloat(formData.incomes[0]?.bonuses)    || 0,
+        gross_income_monthly_commission: parseFloat(formData.incomes[0]?.commission) || 0,
+        gross_income_monthly_other:      parseFloat(formData.incomes[0]?.otherW2)    || 0,
+      };
+
+      if (loan.id) {
+        // Check if record exists for this loan
+        const existing = await db.form1003.getByLoan(loan.id).catch(() => null);
+        if (existing && existing.id) {
+          await db.form1003.update(existing.id, payload);
+        } else {
+          await db.form1003.insert(payload);
+        }
+      } else {
+        await db.form1003.insert(payload);
+      }
+      showToast(`✓ 1003 saved for ${loan.borrower || b.firstName + ' ' + b.lastName}`);
+    } catch (err) {
+      showToast(`⚠ Save failed: ${err.message}`);
+    }
   };
 
   const SECTIONS = [
@@ -1521,11 +1610,27 @@ function LoansPage({ showToast }) {
     return r.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
   }, [loans, search, statusFilter]);
 
-  const handleDelete = async () => { await db.loans.delete(confirmDel.id); setLoans(p=>p.filter(l=>l.id!==confirmDel.id)); setConfirmDel(null); showToast("Loan deleted"); };
+  const handleNewLoan = async () => {
+    try {
+      const newLoan = await db.loans.insert({
+        loan_number:      'L' + Date.now(),
+        loan_status:      'App Intake',
+        borrower:         'New Borrower',
+        subject_property: 'TBD',
+        product:          'TBD',
+        lender:           'No Lender',
+        mlo_id:           1,
+      });
+      setLoans(p => [newLoan, ...p]);
+      setOpen1003(newLoan);
+    } catch (err) {
+      showToast('⚠ Could not create loan: ' + err.message);
+    }
+  };
 
   // If 1003 is open, render the full-page form instead
   if (open1003) {
-    return <Form1003 loan={open1003} onBack={()=>setOpen1003(null)} showToast={showToast} />;
+    return <Form1003 loan={open1003} onBack={()=>{ setOpen1003(null); db.loans.getAll().then(setLoans); }} showToast={showToast} />;
   }
 
   return (
@@ -1542,7 +1647,7 @@ function LoansPage({ showToast }) {
             <input placeholder="Search loans..." value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={()=>setOpen1003({borrower:'New Borrower',loan_number:'—',subject_property:'TBD',loan_status:'App Intake'})}>+ New Loan</button>
+        <button className="btn btn-primary" onClick={handleNewLoan}>+ New Loan</button>
       </div>
 
       <div className="table-wrap">
