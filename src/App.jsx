@@ -1391,6 +1391,7 @@ function Form1003({ loan, onBack, showToast }) {
   const [completedSteps, setCompletedSteps] = useState(new Set());
   const [borrowers, setBorrowers] = useState([emptyBorrower1003('Borrower')]);
   const [activeBIdx, setActiveBIdx] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     incomes:[], assets:[], liabilities:[], reos:[],
     mortgageType:'', amortType:'Fixed', rate:'', mortgagePurpose:'Purchase Home',
@@ -1400,10 +1401,60 @@ function Form1003({ loan, onBack, showToast }) {
     titleName:'', mannerHeld:'', propRights:'Fee Simple',
     rentPres:'', mortPres:'', otherPres:'', hazPres:'', taxPres:'', miPres:'', hoaPres:'', floodPres:'', otherBPres:'',
     mortProp:'', otherProp:'', hazProp:'', taxProp:'', miProp:'', hoaProp:'', floodProp:'', otherBProp:'',
-    salesPrice:'', improvements:'', land:'', refiBalance:'', ccDebts:'', closingCosts:'', discount:'',
+    improvements:'', land:'', refiBalance:'', ccDebts:'', closingCosts:'', discount:'',
     otherLoans:'', sellerCredits:'', otherCredits:'',
     declarations:[], govtMonitoring:[],
   });
+
+  // Load existing 1003 data when form opens
+  useEffect(() => {
+    if (!loan.id) { setLoading(false); return; }
+    db.form1003.getByLoan(loan.id)
+      .then(existing => {
+        if (existing && existing.id) {
+          // Pre-fill borrower section from DB
+          setBorrowers([{
+            ...emptyBorrower1003('Borrower'),
+            firstName:    existing.first_nm     || '',
+            middleName:   existing.middle_nm    || '',
+            lastName:     existing.last_nm      || '',
+            ssn:          existing.ssn          || '',
+            dob:          existing.dob          || '',
+            citizenship:  existing.citizenship  || 'us_citizen',
+            maritalStatus:existing.marital_status || '',
+            presentAddr1: existing.address_street  || '',
+            presentUnit:  existing.address_unit    || '',
+            presentCity:  existing.address_city    || '',
+            presentState: existing.address_state   || '',
+            presentZip:   existing.address_zip     || '',
+            presentCountry: existing.address_country || 'United States',
+            presentYears: existing.current_how_long_addr || '',
+            presentOwn:   existing.housing       || '',
+          }]);
+          // Pre-fill loan/employment data
+          setFormData(p => ({
+            ...p,
+            rate:       existing.rate            || '',
+            baseLoan:   existing.gross_income_monthly_base ? '' : '',
+            incomes: existing.employee_or_business_nm ? [{
+              id: Date.now(), borrower:'Borrower', type:'Employment Income',
+              employer:   existing.employee_or_business_nm || '',
+              position:   existing.position_title || '',
+              base:       existing.gross_income_monthly_base       || '',
+              overtime:   existing.gross_income_monthly_overtime   || '',
+              bonuses:    existing.gross_income_monthly_bonus      || '',
+              commission: existing.gross_income_monthly_commission || '',
+              otherW2:    existing.gross_income_monthly_other      || '',
+              currentEmp:true, primary:false, selfEmp:false, familyRelated:false,
+              addr1:'',city:'',state:'',zip:'',country:'United States',
+              phone:'',verPhone:'',verEmail:'',startDate:'',endDate:'',tips:'',seasonal:'',
+            }] : [],
+          }));
+        }
+      })
+      .catch(() => {}) // No existing record — start fresh
+      .finally(() => setLoading(false));
+  }, [loan.id]);
 
   const goTo = (idx) => {
     setCompletedSteps(p => { const s = new Set(p); if(idx > currentStep) s.add(currentStep); return s; });
@@ -1476,6 +1527,8 @@ function Form1003({ loan, onBack, showToast }) {
       }
 
       showToast(`✓ Saved — ${fullName}`);
+      // Return to loans table after save
+      setTimeout(() => onBack(), 800);
     } catch (err) {
       showToast(`⚠ Save failed: ${err.message}`);
     }
@@ -1523,6 +1576,12 @@ function Form1003({ loan, onBack, showToast }) {
 
       {/* Body */}
       <div className="f1003-body">
+        {loading ? (
+          <div style={{textAlign:'center',padding:'60px 20px',color:'var(--text-3)'}}>
+            <div style={{fontSize:32,marginBottom:12}}>⏳</div>
+            <div style={{fontSize:14}}>Loading existing application data...</div>
+          </div>
+        ) : <>
         <div className="f1003-section-hdr">
           <span>{SECTIONS[currentStep].hdrLabel}</span>
           <span style={{fontSize:11,opacity:.7}}>Step {currentStep+1} of 10</span>
@@ -1539,6 +1598,7 @@ function Form1003({ loan, onBack, showToast }) {
           {currentStep===8 && <Section9Declarations data={formData} setData={setFormData} borrowers={borrowers}/>}
           {currentStep===9 && <Section10GovtMonitoring data={formData} setData={setFormData} borrowers={borrowers}/>}
         </div>
+        </>}
       </div>
 
       {/* Footer nav */}
@@ -2497,6 +2557,19 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// SECTION WRAPPER — defined outside BorrowerPortal to prevent
+// re-renders that cause input focus loss
+// ─────────────────────────────────────────────────────────────────
+function SectionWrap({ num, title, children }) {
+  return (
+    <div className="b-section">
+      <div className="b-section-hdr">Section {num} — {title}</div>
+      <div className="b-section-body">{children}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // BORROWER PORTAL — SCROLLABLE 1003
 // ─────────────────────────────────────────────────────────────────
 function BorrowerPortal({ borrower, onLogout }) {
@@ -2522,13 +2595,6 @@ function BorrowerPortal({ borrower, onLogout }) {
   }, []);
 
   const handleSave = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
-
-  const SectionWrap = ({ num, title, children }) => (
-    <div className="b-section">
-      <div className="b-section-hdr">Section {num} — {title}</div>
-      <div className="b-section-body">{children}</div>
-    </div>
-  );
 
   return (
     <div className="b-wrap">
