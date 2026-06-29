@@ -1413,8 +1413,27 @@ function Form1003({ loan, onBack, showToast }) {
 
   const handleSave = async () => {
     try {
-      // Build payload from borrower personal info + loan data
       const b = borrowers[0];
+      const fullName = [b.firstName, b.lastName].filter(Boolean).join(' ') || 'New Borrower';
+
+      // ── 1. Update the loans table with real borrower info ──────
+      if (loan.id) {
+        await db.loans.update(loan.id, {
+          borrower:         fullName,
+          loan_status:      formData.mortgagePurpose ? 'App Intake' : (loan.loan_status || 'App Intake'),
+          product:          formData.amortType || loan.product || 'TBD',
+          loan_amount:      parseFloat(formData.baseLoan) || loan.loan_amount || null,
+          ltv:              parseFloat(formData.salesPrice) > 0
+                              ? parseFloat(((parseFloat(formData.baseLoan||0)/parseFloat(formData.salesPrice))*100).toFixed(2))
+                              : loan.ltv || null,
+          rate:             parseFloat(formData.rate) || loan.rate || null,
+          subject_property: formData.spAddr1
+                              ? `${formData.spAddr1}${formData.spCity ? ', '+formData.spCity : ''}${formData.spState ? ' '+formData.spState : ''}`
+                              : loan.subject_property || 'TBD',
+        });
+      }
+
+      // ── 2. Save/update form_1003_main_borrower ─────────────────
       const payload = {
         loan_id:      loan.id || null,
         mlo_id:       1,
@@ -1436,7 +1455,6 @@ function Form1003({ loan, onBack, showToast }) {
         address_country: b.presentCountry || 'United States',
         current_how_long_addr: parseFloat(b.presentYears) || null,
         housing:       b.presentOwn || '',
-        // Employment
         employee_or_business_nm: (formData.incomes[0]?.employer) || '',
         position_title:          (formData.incomes[0]?.position) || '',
         gross_income_monthly_base:       parseFloat(formData.incomes[0]?.base)       || 0,
@@ -1447,7 +1465,6 @@ function Form1003({ loan, onBack, showToast }) {
       };
 
       if (loan.id) {
-        // Check if record exists for this loan
         const existing = await db.form1003.getByLoan(loan.id).catch(() => null);
         if (existing && existing.id) {
           await db.form1003.update(existing.id, payload);
@@ -1457,7 +1474,8 @@ function Form1003({ loan, onBack, showToast }) {
       } else {
         await db.form1003.insert(payload);
       }
-      showToast(`✓ 1003 saved for ${loan.borrower || b.firstName + ' ' + b.lastName}`);
+
+      showToast(`✓ Saved — ${fullName}`);
     } catch (err) {
       showToast(`⚠ Save failed: ${err.message}`);
     }
