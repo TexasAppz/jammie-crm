@@ -14,32 +14,32 @@ const GlobalStyles = () => (
       --border: #e5e4e0; --border-light: #f0efeb;
       --text: #111827; --text-2: #4b5563; --text-3: #9ca3af; --text-link: #2563EB;
       --row-hover: #f5f5f3; --tag-bg: #f3f4f6; --tag-color: #374151;
-      --radius: 5px; --radius-lg: 8px;
+      --radius: 6px; --radius-lg: 10px;
       --font: 'DM Sans', sans-serif; --mono: 'DM Mono', monospace;
       --ai-bg: #0f172a; --ai-accent: #818cf8;
     }
-    body { font-family: var(--font); background: var(--cream); color: var(--text); font-size: 13px; line-height: 1.5; min-height: 100vh; }
-    button { font-family: var(--font); cursor: pointer; font-size: 13px; }
-    input, select, textarea { font-family: var(--font); font-size: 13px; }
+    body { font-family: var(--font); background: var(--cream); color: var(--text); font-size: 15px; line-height: 1.6; min-height: 100vh; }
+    button { font-family: var(--font); cursor: pointer; font-size: 15px; }
+    input, select, textarea { font-family: var(--font); font-size: 15px; }
     a { text-decoration: none; color: inherit; }
-    #nav { background: var(--nav-bg); height: 46px; display: flex; align-items: center; padding: 0 18px; gap: 0; position: sticky; top: 0; z-index: 50; border-bottom: 1px solid var(--nav-border); }
-    .nav-logo { color: #fff; font-size: 17px; font-weight: 700; letter-spacing: -0.5px; margin-right: 28px; display: flex; align-items: center; gap: 6px; }
-    .nav-logo-sub { font-size: 9px; color: #60a5fa; font-weight: 500; margin-top: 2px; }
+    #nav { background: var(--nav-bg); height: 52px; display: flex; align-items: center; padding: 0 20px; gap: 0; position: sticky; top: 0; z-index: 50; border-bottom: 1px solid var(--nav-border); }
+    .nav-logo { color: #fff; font-size: 19px; font-weight: 700; letter-spacing: -0.5px; margin-right: 32px; display: flex; align-items: center; gap: 6px; }
+    .nav-logo-sub { font-size: 10px; color: #60a5fa; font-weight: 500; margin-top: 2px; }
     .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
-    .nav-link { color: #94a3b8; padding: 6px 12px; border-radius: 4px; font-size: 13px; font-weight: 400; cursor: pointer; transition: color 0.15s, background 0.15s; white-space: nowrap; }
+    .nav-link { color: #94a3b8; padding: 7px 14px; border-radius: 4px; font-size: 14px; font-weight: 400; cursor: pointer; transition: color 0.15s, background 0.15s; white-space: nowrap; }
     .nav-link:hover { color: #e2e8f0; background: rgba(255,255,255,0.06); }
-    .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); font-weight: 500; border-bottom: 2px solid #2563EB; border-radius: 0; padding-bottom: 4px; }
+    .nav-link.active { color: #fff; background: rgba(255,255,255,0.1); font-weight: 500; border-bottom: 2px solid #2563EB; border-radius: 0; padding-bottom: 5px; }
     .nav-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-    .nav-avatar { width: 28px; height: 28px; background: #2563EB; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 600; }
-    .page { padding: 20px 24px; min-height: calc(100vh - 46px); background: var(--white); }
-    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .page-title { font-size: 20px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .nav-avatar { width: 32px; height: 32px; background: #2563EB; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px; font-weight: 600; }
+    .page { padding: 24px 28px; min-height: calc(100vh - 52px); background: var(--white); }
+    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .page-title { font-size: 22px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
     .page-header-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .page-header-right { display: flex; align-items: center; gap: 8px; }
-    .filter-pill { display: flex; align-items: center; gap: 5px; background: var(--white); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; font-size: 12px; color: var(--text-2); cursor: pointer; transition: border-color 0.15s, background 0.15s; white-space: nowrap; }
+    .filter-pill { display: flex; align-items: center; gap: 5px; background: var(--white); border: 1px solid var(--border); border-radius: 20px; padding: 5px 14px; font-size: 13.5px; color: var(--text-2); cursor: pointer; transition: border-color 0.15s, background 0.15s; white-space: nowrap; }
     .filter-pill:hover { border-color: #9ca3af; background: var(--cream); }
     .filter-pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
-    .btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 14px; font-weight: 500; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: var(--white); color: var(--text-2); border: 1px solid var(--border); }
@@ -48,24 +48,24 @@ const GlobalStyles = () => (
     .btn-ghost:hover { background: var(--cream); }
     .btn-danger { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
     .btn-danger:hover { background: #fecaca; }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
-    .btn-icon { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-3); cursor: pointer; transition: all 0.15s; }
+    .btn-sm { padding: 5px 12px; font-size: 13px; }
+    .btn-icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-3); cursor: pointer; transition: all 0.15s; }
     .btn-icon:hover { background: var(--cream); color: var(--text-2); border-color: #9ca3af; }
-    .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-top: 16px; }
+    .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-top: 18px; }
     table { width: 100%; border-collapse: collapse; }
     thead tr { background: var(--cream); border-bottom: 1px solid var(--border); }
-    th { padding: 9px 14px; text-align: left; font-size: 11.5px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+    th { padding: 11px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
     tbody tr { border-bottom: 1px solid var(--border-light); transition: background 0.1s; }
     tbody tr:last-child { border-bottom: none; }
     tbody tr:hover { background: var(--row-hover); }
-    td { padding: 11px 14px; vertical-align: middle; }
-    .td-primary { font-size: 13px; color: var(--text-link); font-weight: 500; cursor: pointer; }
+    td { padding: 13px 16px; vertical-align: middle; }
+    .td-primary { font-size: 15px; color: var(--text-link); font-weight: 500; cursor: pointer; }
     .td-primary:hover { text-decoration: underline; }
-    .td-sub { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
-    .td-amount { font-size: 13.5px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+    .td-sub { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+    .td-amount { font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
     .row-actions { display: flex; align-items: center; gap: 4px; opacity: 0; transition: opacity 0.15s; }
     tbody tr:hover .row-actions { opacity: 1; }
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
     .badge-dot { width: 6px; height: 6px; border-radius: 50%; }
     .badge-new { background: #eff6ff; color: #1d4ed8; } .badge-new .badge-dot { background: #3b82f6; }
     .badge-contacted { background: #fff7ed; color: #c2410c; } .badge-contacted .badge-dot { background: #f97316; }
@@ -78,38 +78,38 @@ const GlobalStyles = () => (
     .badge-funded { background: #f0fdf4; color: #15803d; } .badge-funded .badge-dot { background: #22c55e; }
     .badge-default { background: var(--tag-bg); color: var(--tag-color); } .badge-default .badge-dot { background: #9ca3af; }
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(2px); }
-    .modal { background: var(--white); border-radius: 12px; width: 100%; box-shadow: 0 25px 70px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 90vh; }
-    .modal-sm { max-width: 480px; } .modal-md { max-width: 640px; } .modal-lg { max-width: 860px; } .modal-xl { max-width: 1000px; }
-    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-    .modal-title { font-size: 15px; font-weight: 600; color: var(--text); }
-    .modal-close { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: var(--text-3); font-size: 20px; border-radius: 4px; }
+    .modal { background: var(--white); border-radius: 14px; width: 100%; box-shadow: 0 25px 70px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 90vh; }
+    .modal-sm { max-width: 500px; } .modal-md { max-width: 660px; } .modal-lg { max-width: 880px; } .modal-xl { max-width: 1020px; }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .modal-title { font-size: 17px; font-weight: 600; color: var(--text); }
+    .modal-close { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: var(--text-3); font-size: 22px; border-radius: 4px; }
     .modal-close:hover { background: var(--cream); color: var(--text-2); }
-    .modal-body { padding: 22px; overflow-y: auto; flex: 1; }
-    .modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border); flex-shrink: 0; }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+    .modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border); flex-shrink: 0; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
     .form-full { grid-column: 1 / -1; }
-    .form-group { display: flex; flex-direction: column; gap: 5px; }
-    .form-label { font-size: 11.5px; font-weight: 500; color: var(--text-2); letter-spacing: 0.02em; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-label { font-size: 13px; font-weight: 500; color: var(--text-2); letter-spacing: 0.02em; }
     .form-label-req::after { content: ' *'; color: #ef4444; }
-    .form-input, .form-select, .form-textarea { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; color: var(--text); background: var(--white); transition: border-color 0.15s, box-shadow 0.15s; width: 100%; }
+    .form-input, .form-select, .form-textarea { padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 15px; color: var(--text); background: var(--white); transition: border-color 0.15s, box-shadow 0.15s; width: 100%; }
     .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-    .form-textarea { resize: vertical; min-height: 80px; }
-    .form-section { margin-bottom: 24px; }
-    .form-section-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
-    .form-section-num { width: 20px; height: 20px; background: var(--accent); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
-    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-3); }
-    .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
-    .empty-title { font-size: 15px; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
-    .empty-sub { font-size: 13px; }
+    .form-textarea { resize: vertical; min-height: 90px; }
+    .form-section { margin-bottom: 28px; }
+    .form-section-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 16px; padding-bottom: 9px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .form-section-num { width: 22px; height: 22px; background: var(--accent); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+    .empty-state { text-align: center; padding: 70px 20px; color: var(--text-3); }
+    .empty-icon { font-size: 40px; margin-bottom: 14px; opacity: 0.5; }
+    .empty-title { font-size: 17px; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
+    .empty-sub { font-size: 14px; }
     .search-wrap { position: relative; }
-    .search-wrap input { padding: 6px 10px 6px 32px; border: 1px solid var(--border); border-radius: 20px; font-size: 12.5px; color: var(--text); background: var(--cream); width: 200px; transition: border-color 0.15s, box-shadow 0.15s; }
-    .search-wrap input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); width: 240px; background: white; }
-    .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3); font-size: 13px; pointer-events: none; }
-    .toast { position: fixed; bottom: 24px; right: 24px; background: #111827; color: white; padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 999; animation: slideUp 0.2s ease; }
+    .search-wrap input { padding: 7px 12px 7px 34px; border: 1px solid var(--border); border-radius: 20px; font-size: 14px; color: var(--text); background: var(--cream); width: 220px; transition: border-color 0.15s, box-shadow 0.15s; }
+    .search-wrap input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); width: 260px; background: white; }
+    .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--text-3); font-size: 14px; pointer-events: none; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #111827; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; z-index: 999; animation: slideUp 0.2s ease; }
     @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .section-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0; }
-    .section-tab { padding: 10px 16px; font-size: 12px; font-weight: 500; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; background: none; border-top: none; border-left: none; border-right: none; }
+    .section-tab { padding: 11px 18px; font-size: 13.5px; font-weight: 500; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; background: none; border-top: none; border-left: none; border-right: none; }
     .section-tab:hover { color: var(--text-2); }
     .section-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
     /* AI SIDEBAR */
@@ -139,37 +139,37 @@ const GlobalStyles = () => (
     .ai-dot:nth-child(3) { animation-delay: 0.4s; }
     @keyframes aiDot { 0%,80%,100%{transform:scale(0.6);opacity:0.4} 40%{transform:scale(1);opacity:1} }
     /* DASHBOARD */
-    .dash-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
-    .kpi-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; }
-    .kpi-label { font-size: 11px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-    .kpi-value { font-size: 26px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
-    .kpi-sub { font-size: 11.5px; color: var(--text-3); margin-top: 5px; }
+    .dash-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 18px; margin-bottom: 28px; }
+    .kpi-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; }
+    .kpi-label { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+    .kpi-value { font-size: 30px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
+    .kpi-sub { font-size: 13px; color: var(--text-3); margin-top: 6px; }
     .kpi-accent { color: var(--accent); }
-    .dash-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .dash-row { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; margin-bottom: 28px; }
     .card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg); }
-    .card-header { padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: space-between; }
-    .card-body { padding: 16px 18px; }
+    .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: space-between; }
+    .card-body { padding: 18px 20px; }
     .pipeline-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; margin: 8px 0 16px; }
     .pipeline-seg { height: 100%; transition: flex 0.3s; }
-    .pipeline-legend { display: flex; flex-wrap: wrap; gap: 10px; }
-    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-2); }
+    .pipeline-legend { display: flex; flex-wrap: wrap; gap: 12px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text-2); }
     .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .activity-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-light); }
+    .activity-item { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-light); }
     .activity-item:last-child { border-bottom: none; }
-    .activity-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
-    .activity-text { font-size: 12.5px; color: var(--text-2); line-height: 1.4; }
-    .activity-time { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+    .activity-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .activity-text { font-size: 14px; color: var(--text-2); line-height: 1.5; }
+    .activity-time { font-size: 12px; color: var(--text-3); margin-top: 2px; }
     /* TASKS */
-    .task-section { margin-bottom: 24px; }
-    .task-section-title { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-    .task-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border: 1px solid var(--border-light); border-radius: var(--radius); margin-bottom: 6px; transition: background 0.1s; cursor: pointer; }
+    .task-section { margin-bottom: 28px; }
+    .task-section-title { font-size: 13px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
+    .task-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border: 1px solid var(--border-light); border-radius: var(--radius); margin-bottom: 7px; transition: background 0.1s; cursor: pointer; }
     .task-item:hover { background: var(--cream); }
     .task-item.done { opacity: 0.5; }
-    .task-check { width: 16px; height: 16px; border: 2px solid var(--border); border-radius: 4px; flex-shrink: 0; margin-top: 1px; cursor: pointer; accent-color: var(--accent); }
+    .task-check { width: 17px; height: 17px; border: 2px solid var(--border); border-radius: 4px; flex-shrink: 0; margin-top: 1px; cursor: pointer; accent-color: var(--accent); }
     .task-content { flex: 1; }
-    .task-title { font-size: 13px; color: var(--text); font-weight: 500; }
-    .task-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; display: flex; gap: 10px; }
-    .task-priority { display: inline-flex; padding: 1px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 500; }
+    .task-title { font-size: 15px; color: var(--text); font-weight: 500; }
+    .task-meta { font-size: 13px; color: var(--text-3); margin-top: 3px; display: flex; gap: 12px; }
+    .task-priority { display: inline-flex; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
     .task-priority.high { background: #fee2e2; color: #b91c1c; }
     .task-priority.medium { background: #fefce8; color: #a16207; }
     .task-priority.low { background: #f0fdf4; color: #15803d; }
@@ -380,11 +380,66 @@ let _nextLoanId = 9, _nextLeadId = 6, _nextTaskId = 8;
 // API CLIENT — connects React to Express backend
 // Falls back to mock data if API is unreachable (dev mode)
 // ─────────────────────────────────────────────────────────────────
-const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
-  ? import.meta.env.VITE_API_URL
-  : 'http://localhost:3001';
+const API_URL = 'http://localhost:3001';
+
+// Mock DB fallback (used when API is unreachable e.g. local dev without backend)
+const mockDb = {
+  loans: {
+    getAll:  () => Promise.resolve([..._loans]),
+    getOne:  (id) => Promise.resolve(_loans.find(l=>l.id===id)||null),
+    insert:  (r) => { const n={...r,id:_nextLoanId++,updated_at:new Date().toISOString()}; _loans.push(n); return Promise.resolve(n); },
+    update:  (id,r) => { _loans=_loans.map(l=>l.id===id?{...l,...r,updated_at:new Date().toISOString()}:l); return Promise.resolve(_loans.find(l=>l.id===id)); },
+    delete:  (id) => { _loans=_loans.filter(l=>l.id!==id); return Promise.resolve({success:true}); },
+  },
+  leads: {
+    getAll:  () => Promise.resolve([..._leads]),
+    getOne:  (id) => Promise.resolve(_leads.find(l=>l.id===id)||null),
+    insert:  (r) => { const n={...r,id:_nextLeadId++,updated_at:new Date().toISOString()}; _leads.push(n); return Promise.resolve(n); },
+    update:  (id,r) => { _leads=_leads.map(l=>l.id===id?{...l,...r,updated_at:new Date().toISOString()}:l); return Promise.resolve(_leads.find(l=>l.id===id)); },
+    delete:  (id) => { _leads=_leads.filter(l=>l.id!==id); return Promise.resolve({success:true}); },
+  },
+  tasks: {
+    getAll:  () => Promise.resolve([..._tasks]),
+    getOne:  (id) => Promise.resolve(_tasks.find(t=>t.id===id)||null),
+    insert:  (r) => { const n={...r,id:_nextTaskId++,created_at:new Date().toISOString()}; _tasks.push(n); return Promise.resolve(n); },
+    update:  (id,r) => { _tasks=_tasks.map(t=>t.id===id?{...t,...r}:t); return Promise.resolve(_tasks.find(t=>t.id===id)); },
+    toggle:  (id) => { _tasks=_tasks.map(t=>t.id===id?{...t,done:!t.done}:t); return Promise.resolve(_tasks.find(t=>t.id===id)); },
+    delete:  (id) => { _tasks=_tasks.filter(t=>t.id!==id); return Promise.resolve({success:true}); },
+  },
+  contacts: {
+    getAll:  () => Promise.resolve([..._contacts]),
+    getOne:  (id) => Promise.resolve(_contacts.find(c=>c.id===id)||null),
+    insert:  (r) => { const n={...r,id:Date.now()}; _contacts.push(n); return Promise.resolve(n); },
+    update:  (id,r) => { return Promise.resolve(r); },
+    delete:  (id) => { return Promise.resolve({success:true}); },
+  },
+  form1003: {
+    getAll:     () => Promise.resolve([]),
+    getOne:     () => Promise.resolve(null),
+    getByLoan:  () => Promise.reject(new Error('no record')),
+    insert:     (r) => Promise.resolve({...r,id:Date.now()}),
+    update:     (id,r) => Promise.resolve(r),
+    setStatus:  () => Promise.resolve({success:true}),
+    delete:     () => Promise.resolve({success:true}),
+  },
+};
+
+let _apiAvailable = null; // null=unknown, true=available, false=unavailable
+
+async function checkApi() {
+  if (_apiAvailable !== null) return _apiAvailable;
+  try {
+    const res = await fetch(`${API_URL}/api/health`, { signal: AbortSignal.timeout(2000) });
+    _apiAvailable = res.ok;
+  } catch {
+    _apiAvailable = false;
+  }
+  return _apiAvailable;
+}
 
 async function apiFetch(path, options = {}) {
+  const available = await checkApi();
+  if (!available) throw new Error('API unavailable');
   const res = await fetch(`${API_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
@@ -397,44 +452,45 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
+// db — tries real API first, falls back to mock automatically
 const db = {
   loans: {
-    getAll:  ()       => apiFetch('/api/loans'),
-    getOne:  (id)     => apiFetch(`/api/loans/${id}`),
-    insert:  (data)   => apiFetch('/api/loans',    { method: 'POST',   body: data }),
-    update:  (id, data) => apiFetch(`/api/loans/${id}`, { method: 'PUT', body: data }),
-    delete:  (id)     => apiFetch(`/api/loans/${id}`,   { method: 'DELETE' }),
+    getAll:  ()        => apiFetch('/api/loans').catch(() => mockDb.loans.getAll()),
+    getOne:  (id)      => apiFetch(`/api/loans/${id}`).catch(() => mockDb.loans.getOne(id)),
+    insert:  (data)    => apiFetch('/api/loans',         { method:'POST',   body:data }).catch(() => mockDb.loans.insert(data)),
+    update:  (id,data) => apiFetch(`/api/loans/${id}`,   { method:'PUT',    body:data }).catch(() => mockDb.loans.update(id,data)),
+    delete:  (id)      => apiFetch(`/api/loans/${id}`,   { method:'DELETE' }).catch(() => mockDb.loans.delete(id)),
   },
   leads: {
-    getAll:  ()       => apiFetch('/api/leads'),
-    getOne:  (id)     => apiFetch(`/api/leads/${id}`),
-    insert:  (data)   => apiFetch('/api/leads',    { method: 'POST',   body: data }),
-    update:  (id, data) => apiFetch(`/api/leads/${id}`, { method: 'PUT', body: data }),
-    delete:  (id)     => apiFetch(`/api/leads/${id}`,   { method: 'DELETE' }),
+    getAll:  ()        => apiFetch('/api/leads').catch(() => mockDb.leads.getAll()),
+    getOne:  (id)      => apiFetch(`/api/leads/${id}`).catch(() => mockDb.leads.getOne(id)),
+    insert:  (data)    => apiFetch('/api/leads',         { method:'POST',   body:data }).catch(() => mockDb.leads.insert(data)),
+    update:  (id,data) => apiFetch(`/api/leads/${id}`,   { method:'PUT',    body:data }).catch(() => mockDb.leads.update(id,data)),
+    delete:  (id)      => apiFetch(`/api/leads/${id}`,   { method:'DELETE' }).catch(() => mockDb.leads.delete(id)),
   },
   tasks: {
-    getAll:  ()       => apiFetch('/api/tasks'),
-    getOne:  (id)     => apiFetch(`/api/tasks/${id}`),
-    insert:  (data)   => apiFetch('/api/tasks',    { method: 'POST',   body: data }),
-    update:  (id, data) => apiFetch(`/api/tasks/${id}`, { method: 'PUT', body: data }),
-    toggle:  (id)     => apiFetch(`/api/tasks/${id}/toggle`, { method: 'PATCH' }),
-    delete:  (id)     => apiFetch(`/api/tasks/${id}`,   { method: 'DELETE' }),
+    getAll:  ()        => apiFetch('/api/tasks').catch(() => mockDb.tasks.getAll()),
+    getOne:  (id)      => apiFetch(`/api/tasks/${id}`).catch(() => mockDb.tasks.getOne(id)),
+    insert:  (data)    => apiFetch('/api/tasks',         { method:'POST',   body:data }).catch(() => mockDb.tasks.insert(data)),
+    update:  (id,data) => apiFetch(`/api/tasks/${id}`,   { method:'PUT',    body:data }).catch(() => mockDb.tasks.update(id,data)),
+    toggle:  (id)      => apiFetch(`/api/tasks/${id}/toggle`,{ method:'PATCH' }).catch(() => mockDb.tasks.toggle(id)),
+    delete:  (id)      => apiFetch(`/api/tasks/${id}`,   { method:'DELETE' }).catch(() => mockDb.tasks.delete(id)),
   },
   contacts: {
-    getAll:  ()       => apiFetch('/api/contacts'),
-    getOne:  (id)     => apiFetch(`/api/contacts/${id}`),
-    insert:  (data)   => apiFetch('/api/contacts', { method: 'POST',   body: data }),
-    update:  (id, data) => apiFetch(`/api/contacts/${id}`, { method: 'PUT', body: data }),
-    delete:  (id)     => apiFetch(`/api/contacts/${id}`,   { method: 'DELETE' }),
+    getAll:  ()        => apiFetch('/api/contacts').catch(() => mockDb.contacts.getAll()),
+    getOne:  (id)      => apiFetch(`/api/contacts/${id}`).catch(() => mockDb.contacts.getOne(id)),
+    insert:  (data)    => apiFetch('/api/contacts',      { method:'POST',   body:data }).catch(() => mockDb.contacts.insert(data)),
+    update:  (id,data) => apiFetch(`/api/contacts/${id}`,{ method:'PUT',    body:data }).catch(() => mockDb.contacts.update(id,data)),
+    delete:  (id)      => apiFetch(`/api/contacts/${id}`,{ method:'DELETE' }).catch(() => mockDb.contacts.delete(id)),
   },
   form1003: {
-    getAll:     ()        => apiFetch('/api/form1003'),
-    getOne:     (id)      => apiFetch(`/api/form1003/${id}`),
-    getByLoan:  (loanId)  => apiFetch(`/api/form1003/loan/${loanId}`),
-    insert:     (data)    => apiFetch('/api/form1003',    { method: 'POST',  body: data }),
-    update:     (id, data) => apiFetch(`/api/form1003/${id}`, { method: 'PUT', body: data }),
-    setStatus:  (id, status) => apiFetch(`/api/form1003/${id}/status`, { method: 'PATCH', body: { form_status: status } }),
-    delete:     (id)      => apiFetch(`/api/form1003/${id}`, { method: 'DELETE' }),
+    getAll:    ()        => apiFetch('/api/form1003').catch(() => mockDb.form1003.getAll()),
+    getOne:    (id)      => apiFetch(`/api/form1003/${id}`).catch(() => mockDb.form1003.getOne(id)),
+    getByLoan: (loanId)  => apiFetch(`/api/form1003/loan/${loanId}`).catch(() => mockDb.form1003.getByLoan()),
+    insert:    (data)    => apiFetch('/api/form1003',         { method:'POST',  body:data }).catch(() => mockDb.form1003.insert(data)),
+    update:    (id,data) => apiFetch(`/api/form1003/${id}`,   { method:'PUT',   body:data }).catch(() => mockDb.form1003.update(id,data)),
+    setStatus: (id,s)    => apiFetch(`/api/form1003/${id}/status`,{ method:'PATCH', body:{form_status:s} }).catch(() => mockDb.form1003.setStatus()),
+    delete:    (id)      => apiFetch(`/api/form1003/${id}`,   { method:'DELETE' }).catch(() => mockDb.form1003.delete()),
   },
 };
 
@@ -836,7 +892,7 @@ const SECTION_NAMES_1003 = ['Personal Info','Employment & Income','Assets','Liab
 function emptyBorrower1003(label='Borrower') {
   return {
     label, firstName:'', middleName:'', lastName:'', suffix:'',
-    ssn:'', dob:'', maritalStatus:'', numDeps:'', depAges:'',
+    ssn:'', _showSsn:false, dob:'', maritalStatus:'', numDeps:'', depAges:'',
     joined:'', taxSameAs:'', addrSameAs:'', citizenship:'us_citizen',
     isVeteran:false, vaUseType:'', isDisabledVet:false, isExempt:false,
     altNames:[],
@@ -940,7 +996,29 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
       <FField label="Suffix"><FInput value={b.suffix} onChange={e=>upd('suffix',e.target.value)} placeholder="Jr., Sr."/></FField>
     </div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:14,marginBottom:14}}>
-      <FField label="Social Security #" req><FInput value={b.ssn} onChange={e=>upd('ssn',e.target.value)} placeholder="000-00-0000" maxLength={11}/></FField>
+      <FField label="Social Security #" req>
+        <div style={{position:'relative'}}>
+          <input
+            type={b._showSsn ? 'text' : 'text'}
+            value={b._showSsn ? (b.ssn||'') : (b.ssn ? 'xxx-xx-'+String(b.ssn).replace(/\D/g,'').slice(-4) : '')}
+            onChange={e => {
+              if (b._showSsn) upd('ssn', e.target.value);
+            }}
+            onFocus={e => { upd('_showSsn', true); setTimeout(()=>{ const el=e.target; el.setSelectionRange(el.value.length,el.value.length); },0); }}
+            onBlur={() => upd('_showSsn', false)}
+            placeholder="000-00-0000"
+            maxLength={11}
+            className="form-input"
+            style={{paddingRight:36}}
+            onFocus2={e=>{e.target.style.borderColor='#2563EB';e.target.style.boxShadow='0 0 0 3px rgba(37,99,235,.1)'}}
+          />
+          <button type="button"
+            onMouseDown={e=>{ e.preventDefault(); upd('_showSsn', !b._showSsn); }}
+            style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'var(--text-3)',fontSize:16,padding:0,lineHeight:1}}>
+            {b._showSsn ? '👁' : '🙈'}
+          </button>
+        </div>
+      </FField>
       <FField label="Date of Birth" req><FInput type="date" value={b.dob} onChange={e=>upd('dob',e.target.value)}/></FField>
       <FField label="Marital Status"><FSelect value={b.maritalStatus} onChange={e=>upd('maritalStatus',e.target.value)}><option value="">Please Select</option><option>Married</option><option>Unmarried</option><option>Separated</option></FSelect></FField>
       <FField label="No. of Dependents"><FInput type="number" value={b.numDeps} onChange={e=>upd('numDeps',e.target.value)} placeholder="0" min="0"/></FField>
@@ -1387,16 +1465,15 @@ function Section10GovtMonitoring({ data, setData, borrowers }) {
 }
 
 function Form1003({ loan, onBack, showToast }) {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState(new Set());
   const [borrowers, setBorrowers] = useState([emptyBorrower1003('Borrower')]);
   const [activeBIdx, setActiveBIdx] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     incomes:[], assets:[], liabilities:[], reos:[],
     mortgageType:'', amortType:'Fixed', rate:'', mortgagePurpose:'Purchase Home',
     salesPrice:'', appraisedVal:'', baseLoan:'', financedFees:'', creditScore:'',
-    propType:'Single Family Residence', occupancy:'Primary Residence', attachType:'Detached',
+    propType:'Single Family (1-4 Units)', occupancy:'Primary Residence', attachType:'Detached',
     spAddr1:'', spUnit:'', spCity:'', spState:'', spZip:'', spYearBuilt:'',
     titleName:'', mannerHeld:'', propRights:'Fee Simple',
     rentPres:'', mortPres:'', otherPres:'', hazPres:'', taxPres:'', miPres:'', hoaPres:'', floodPres:'', otherBPres:'',
@@ -1404,115 +1481,170 @@ function Form1003({ loan, onBack, showToast }) {
     improvements:'', land:'', refiBalance:'', ccDebts:'', closingCosts:'', discount:'',
     otherLoans:'', sellerCredits:'', otherCredits:'',
     declarations:[], govtMonitoring:[],
+    refiType:'', cashOutPurpose:'', lienPosition:'First Lien', amortTerm:'360',
+    numUnits:'1', constructionMethod:'Site Built', acreage:'', origCost:'',
+    trustInfo:'', vestingRead:'',
   });
 
-  // Load existing 1003 data when form opens
+  // ── Load data from BOTH loans table AND 1003 DB on open ────────
   useEffect(() => {
     if (!loan.id) { setLoading(false); return; }
+
+    // ── Step 1: Pre-fill from loans table (instant, no API needed) ──
+    // Split "Yusmari Rosario Noguera" → firstName="Yusmari" lastName="Rosario Noguera"
+    const nameParts = (loan.borrower || '').trim().split(' ');
+    const firstFromLoan = nameParts[0] || '';
+    const lastFromLoan  = nameParts.slice(1).join(' ') || '';
+
+    setFormData(p => ({
+      ...p,
+      baseLoan:     loan.loan_amount ? String(loan.loan_amount) : '',
+      rate:         loan.rate        ? String(loan.rate)        : '',
+      appraisedVal: loan.loan_amount ? String(loan.loan_amount) : '',
+      spAddr1:  loan.subject_property && loan.subject_property !== 'TBD'
+                  ? loan.subject_property.split(',')[0]?.trim() : '',
+      spCity:   loan.subject_property?.includes(',')
+                  ? loan.subject_property.split(',')[1]?.trim()?.split(' ')[0] : '',
+      spState:  loan.subject_property?.includes(',')
+                  ? loan.subject_property.split(',')[1]?.trim()?.split(' ')[1] : '',
+      mortgagePurpose: loan.purpose || 'Purchase Home',
+      mortgageType: loan.product?.includes('FHA')    ? 'FHA'
+                  : loan.product?.includes('VA')     ? 'VA'
+                  : loan.product?.includes('NON-QM') ? 'NON-QM'
+                  : 'Conventional',
+    }));
+
+    // Pre-fill borrower name from loans table as fallback
+    if (firstFromLoan) {
+      setBorrowers([{
+        ...emptyBorrower1003('Borrower'),
+        firstName: firstFromLoan,
+        lastName:  lastFromLoan,
+      }]);
+    }
+
+    // ── Step 2: Override with full 1003 DB record if it exists ──────
     db.form1003.getByLoan(loan.id)
       .then(existing => {
         if (existing && existing.id) {
-          // Pre-fill borrower section from DB
           setBorrowers([{
             ...emptyBorrower1003('Borrower'),
-            firstName:    existing.first_nm     || '',
-            middleName:   existing.middle_nm    || '',
-            lastName:     existing.last_nm      || '',
-            ssn:          existing.ssn          || '',
-            dob:          existing.dob          || '',
-            citizenship:  existing.citizenship  || 'us_citizen',
-            maritalStatus:existing.marital_status || '',
-            presentAddr1: existing.address_street  || '',
-            presentUnit:  existing.address_unit    || '',
-            presentCity:  existing.address_city    || '',
-            presentState: existing.address_state   || '',
-            presentZip:   existing.address_zip     || '',
-            presentCountry: existing.address_country || 'United States',
-            presentYears: existing.current_how_long_addr || '',
-            presentOwn:   existing.housing       || '',
+            firstName:     existing.first_nm       || firstFromLoan,
+            middleName:    existing.middle_nm       || '',
+            lastName:      existing.last_nm        || lastFromLoan,
+            ssn:           existing.ssn             || '',
+            dob:           existing.dob             ? existing.dob.split('T')[0] : '',
+            citizenship:   existing.citizenship     || 'us_citizen',
+            maritalStatus: existing.marital_status  || '',
+            numDeps:       existing.num_dependents  || '0',
+            presentAddr1:  existing.address_street  || '',
+            presentUnit:   existing.address_unit    || '',
+            presentCity:   existing.address_city    || '',
+            presentState:  existing.address_state   || '',
+            presentZip:    existing.address_zip     || '',
+            presentCountry:existing.address_country || 'United States',
+            presentYears:  existing.current_how_long_addr || '',
+            presentOwn:    existing.housing         || '',
           }]);
-          // Pre-fill loan/employment data
           setFormData(p => ({
             ...p,
-            rate:       existing.rate            || '',
-            baseLoan:   existing.gross_income_monthly_base ? '' : '',
+            rate:        existing.rate || p.rate || '',
+            spAddr1:     existing.address_street && !p.spAddr1 ? existing.address_street : p.spAddr1,
             incomes: existing.employee_or_business_nm ? [{
               id: Date.now(), borrower:'Borrower', type:'Employment Income',
-              employer:   existing.employee_or_business_nm || '',
-              position:   existing.position_title || '',
-              base:       existing.gross_income_monthly_base       || '',
-              overtime:   existing.gross_income_monthly_overtime   || '',
-              bonuses:    existing.gross_income_monthly_bonus      || '',
-              commission: existing.gross_income_monthly_commission || '',
-              otherW2:    existing.gross_income_monthly_other      || '',
-              currentEmp:true, primary:false, selfEmp:false, familyRelated:false,
+              employer:    existing.employee_or_business_nm || '',
+              position:    existing.position_title          || '',
+              startDate:   existing.position_start_date ? existing.position_start_date.split('T')[0] : '',
+              base:        existing.gross_income_monthly_base       || '',
+              overtime:    existing.gross_income_monthly_overtime   || '',
+              bonuses:     existing.gross_income_monthly_bonus      || '',
+              commission:  existing.gross_income_monthly_commission || '',
+              otherW2:     existing.gross_income_monthly_other      || '',
+              currentEmp:true, primary:true, selfEmp:false, familyRelated:false,
               addr1:'',city:'',state:'',zip:'',country:'United States',
-              phone:'',verPhone:'',verEmail:'',startDate:'',endDate:'',tips:'',seasonal:'',
-            }] : [],
+              phone:'',verPhone:'',verEmail:'',endDate:'',tips:'',seasonal:'',
+            }] : p.incomes,
           }));
         }
       })
-      .catch(() => {}) // No existing record — start fresh
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [loan.id]);
-
-  const goTo = (idx) => {
-    setCompletedSteps(p => { const s = new Set(p); if(idx > currentStep) s.add(currentStep); return s; });
-    setCurrentStep(idx);
-    window.scrollTo({top:0,behavior:'smooth'});
-  };
 
   const handleSave = async () => {
     try {
       const b = borrowers[0];
       const fullName = [b.firstName, b.lastName].filter(Boolean).join(' ') || 'New Borrower';
 
-      // ── 1. Update the loans table with real borrower info ──────
+      // ── 1. Update loans table ─────────────────────────────────────
       if (loan.id) {
         await db.loans.update(loan.id, {
           borrower:         fullName,
-          loan_status:      formData.mortgagePurpose ? 'App Intake' : (loan.loan_status || 'App Intake'),
-          product:          formData.amortType || loan.product || 'TBD',
-          loan_amount:      parseFloat(formData.baseLoan) || loan.loan_amount || null,
-          ltv:              parseFloat(formData.salesPrice) > 0
-                              ? parseFloat(((parseFloat(formData.baseLoan||0)/parseFloat(formData.salesPrice))*100).toFixed(2))
+          loan_status:      loan.loan_status || 'App Intake',
+          loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
+          rate:             parseFloat(formData.rate)         || loan.rate        || null,
+          ltv:              parseFloat(formData.appraisedVal) > 0
+                              ? parseFloat(((parseFloat(formData.baseLoan||0)/parseFloat(formData.appraisedVal))*100).toFixed(2))
                               : loan.ltv || null,
-          rate:             parseFloat(formData.rate) || loan.rate || null,
           subject_property: formData.spAddr1
-                              ? `${formData.spAddr1}${formData.spCity ? ', '+formData.spCity : ''}${formData.spState ? ' '+formData.spState : ''}`
+                              ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
                               : loan.subject_property || 'TBD',
+          product:          formData.amortType && formData.mortgageType
+                              ? `${formData.mortgageType} ${formData.amortTerm==='360'?'30yr':formData.amortTerm==='180'?'15yr':formData.amortTerm+'mo'} ${formData.amortType}`
+                              : loan.product || 'TBD',
+          refi_type:        formData.refiType        || null,
+          cash_out_purpose: formData.cashOutPurpose  || null,
+          lien_position:    formData.lienPosition    || 'First Lien',
+          amort_term:       parseInt(formData.amortTerm) || 360,
+          credit_score:     parseInt(formData.creditScore) || null,
         });
       }
 
-      // ── 2. Save/update form_1003_main_borrower ─────────────────
+      // ── 2. Build full 1003 payload ────────────────────────────────
       const payload = {
-        loan_id:      loan.id || null,
-        mlo_id:       1,
-        form_status:  'draft',
-        email:        b.email || '',
-        first_nm:     b.firstName || '',
-        middle_nm:    b.middleName || '',
-        last_nm:      b.lastName || '',
-        ssn:          b.ssn || '',
-        dob:          b.dob || null,
-        citizenship:  b.citizenship || '',
+        loan_id:        loan.id || null,
+        mlo_id:         1,
+        form_status:    'draft',
+        // Personal Info
+        email:          b.email         || '',
+        first_nm:       b.firstName     || '',
+        middle_nm:      b.middleName    || '',
+        last_nm:        b.lastName      || '',
+        ssn:            b.ssn           || '',
+        dob:            b.dob           || null,
+        citizenship:    b.citizenship   || '',
         marital_status: b.maritalStatus || '',
         num_borrowers:  borrowers.length,
-        address_street: b.presentAddr1 || '',
-        address_unit:   b.presentUnit || '',
-        address_city:   b.presentCity || '',
-        address_state:  b.presentState || '',
-        address_zip:    b.presentZip || '',
-        address_country: b.presentCountry || 'United States',
+        // Address
+        address_street:  b.presentAddr1  || '',
+        address_unit:    b.presentUnit   || '',
+        address_city:    b.presentCity   || '',
+        address_state:   b.presentState  || '',
+        address_zip:     b.presentZip    || '',
+        address_country: b.presentCountry|| 'United States',
         current_how_long_addr: parseFloat(b.presentYears) || null,
-        housing:       b.presentOwn || '',
-        employee_or_business_nm: (formData.incomes[0]?.employer) || '',
-        position_title:          (formData.incomes[0]?.position) || '',
+        housing:         b.presentOwn    || '',
+        // Employment
+        employee_or_business_nm:         formData.incomes[0]?.employer   || '',
+        position_title:                  formData.incomes[0]?.position   || '',
+        position_start_date:             formData.incomes[0]?.startDate  || null,
         gross_income_monthly_base:       parseFloat(formData.incomes[0]?.base)       || 0,
         gross_income_monthly_overtime:   parseFloat(formData.incomes[0]?.overtime)   || 0,
         gross_income_monthly_bonus:      parseFloat(formData.incomes[0]?.bonuses)    || 0,
         gross_income_monthly_commission: parseFloat(formData.incomes[0]?.commission) || 0,
         gross_income_monthly_other:      parseFloat(formData.incomes[0]?.otherW2)    || 0,
+        // Property Info (new fields)
+        num_units:            parseInt(formData.numUnits)   || 1,
+        construction_method:  formData.constructionMethod  || null,
+        acreage:              parseFloat(formData.acreage)  || null,
+        orig_cost:            parseFloat(formData.origCost) || null,
+        // Title Info (new fields)
+        trust_info:           formData.trustInfo    || null,
+        vesting_read:         formData.vestingRead  || null,
+        // Loan Info (new fields)
+        lien_position:        formData.lienPosition || 'First Lien',
+        refi_type:            formData.refiType     || null,
+        cash_out_purpose:     formData.cashOutPurpose || null,
       };
 
       if (loan.id) {
@@ -1527,91 +1659,498 @@ function Form1003({ loan, onBack, showToast }) {
       }
 
       showToast(`✓ Saved — ${fullName}`);
-      // Return to loans table after save
-      setTimeout(() => onBack(), 800);
     } catch (err) {
       showToast(`⚠ Save failed: ${err.message}`);
     }
   };
 
-  const SECTIONS = [
-    { label:'Personal Info',          hdrLabel:'Section 1 — Personal Information',         btnLabel:'+ Add Borrower' },
-    { label:'Employment & Income',    hdrLabel:'Section 2 — Employment & Income',           btnLabel:'+ Add Income' },
-    { label:'Assets',                 hdrLabel:'Section 3 — Assets Information',            btnLabel:'+ Add Asset' },
-    { label:'Liabilities',            hdrLabel:'Section 4 — Liabilities Information',       btnLabel:'+ Add Liability' },
-    { label:'Real Estate Owned',      hdrLabel:'Section 5 — Real Estate Owned',             btnLabel:'+ Add Property' },
-    { label:'Loan Information',       hdrLabel:'Section 6 — Loan Information',              btnLabel:null },
-    { label:'Housing Expenses',       hdrLabel:'Section 7 — Total Present Housing Expense', btnLabel:null },
-    { label:'Details of Transaction', hdrLabel:'Section 8 — Details of Transaction',        btnLabel:null },
-    { label:'Declarations',           hdrLabel:'Section 9 — Declarations',                  btnLabel:null },
-    { label:'Gov\'t Monitoring',      hdrLabel:'Section 10 — Government Monitoring',        btnLabel:null },
+  // Auto-save silently when switching tabs
+  const autoSave = async () => {
+    setSaving(true);
+    try {
+      const b = borrowers[0];
+      const fullName = [b.firstName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower';
+      if (loan.id) {
+        // Update loans table
+        await db.loans.update(loan.id, {
+          borrower:         fullName !== 'New Borrower' ? fullName : loan.borrower,
+          loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
+          rate:             parseFloat(formData.rate)         || loan.rate        || null,
+          ltv:              parseFloat(formData.appraisedVal) > 0
+                              ? parseFloat(((parseFloat(formData.baseLoan||0)/parseFloat(formData.appraisedVal))*100).toFixed(2))
+                              : loan.ltv || null,
+          subject_property: formData.spAddr1
+                              ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
+                              : loan.subject_property || 'TBD',
+          refi_type:        formData.refiType        || null,
+          cash_out_purpose: formData.cashOutPurpose  || null,
+          lien_position:    formData.lienPosition    || 'First Lien',
+          amort_term:       parseInt(formData.amortTerm) || 360,
+          credit_score:     parseInt(formData.creditScore) || null,
+        }).catch(()=>{});
+
+        // Update 1003 table
+        const payload = {
+          loan_id:        loan.id,   mlo_id: 1,   form_status: 'draft',
+          first_nm:       b.firstName||'',         middle_nm:   b.middleName||'',
+          last_nm:        b.lastName||'',           ssn:         b.ssn||'',
+          dob:            b.dob||null,              citizenship: b.citizenship||'',
+          marital_status: b.maritalStatus||'',      num_borrowers: borrowers.length,
+          address_street: b.presentAddr1||'',       address_unit:  b.presentUnit||'',
+          address_city:   b.presentCity||'',        address_state: b.presentState||'',
+          address_zip:    b.presentZip||'',         address_country: b.presentCountry||'United States',
+          current_how_long_addr: parseFloat(b.presentYears)||null,
+          housing:        b.presentOwn||'',
+          employee_or_business_nm:         formData.incomes[0]?.employer||'',
+          position_title:                  formData.incomes[0]?.position||'',
+          position_start_date:             formData.incomes[0]?.startDate||null,
+          gross_income_monthly_base:       parseFloat(formData.incomes[0]?.base)||0,
+          gross_income_monthly_overtime:   parseFloat(formData.incomes[0]?.overtime)||0,
+          gross_income_monthly_bonus:      parseFloat(formData.incomes[0]?.bonuses)||0,
+          gross_income_monthly_commission: parseFloat(formData.incomes[0]?.commission)||0,
+          gross_income_monthly_other:      parseFloat(formData.incomes[0]?.otherW2)||0,
+          // New fields
+          num_units:           parseInt(formData.numUnits)||1,
+          construction_method: formData.constructionMethod||null,
+          acreage:             parseFloat(formData.acreage)||null,
+          orig_cost:           parseFloat(formData.origCost)||null,
+          trust_info:          formData.trustInfo||null,
+          vesting_read:        formData.vestingRead||null,
+          lien_position:       formData.lienPosition||'First Lien',
+          refi_type:           formData.refiType||null,
+          cash_out_purpose:    formData.cashOutPurpose||null,
+        };
+        const existing = await db.form1003.getByLoan(loan.id).catch(()=>null);
+        if (existing?.id) { await db.form1003.update(existing.id, payload).catch(()=>{}); }
+        else { await db.form1003.insert(payload).catch(()=>{}); }
+      }
+    } catch {} finally { setSaving(false); }
+  };
+
+  const TABS = [
+    { id:'loan',      label:'Loan & Property',  icon:'🏠' },
+    { id:'borrower',  label:'Borrower Info',     icon:'👤' },
+    { id:'financial', label:'Financial Info',    icon:'💰' },
   ];
+  const [activeTab, setActiveTab] = useState('loan');
+  const [loanSubTab, setLoanSubTab] = useState('loan');
+  const [borrowerSubTab, setBorrowerSubTab] = useState('basic');
+
+  // Switch tab with auto-save
+  const switchTab = async (newTab) => {
+    await autoSave();
+    setActiveTab(newTab);
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
 
   return (
     <div className="f1003-wrap">
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className="f1003-topbar">
         <div>
-          <div className="f1003-loan-name">📋 1003 — {loan.borrower}</div>
+          <div className="f1003-loan-name">📋 {borrowers[0]?.firstName && borrowers[0]?.lastName ? `${borrowers[0].firstName} ${borrowers[0].lastName}` : loan.borrower || 'New Application'}</div>
           <div className="f1003-loan-meta">Loan #{loan.loan_number} · {loan.subject_property} · {loan.loan_status}</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {saving && <span style={{fontSize:12,color:'rgba(255,255,255,.6)',display:'flex',alignItems:'center',gap:4}}>⏳ Saving...</span>}
           <button className="btn btn-sm" style={{background:'rgba(255,255,255,.15)',color:'#fff',border:'1px solid rgba(255,255,255,.3)'}} onClick={handleSave}>💾 Save</button>
           <button className="btn btn-sm" style={{background:'#ef4444',color:'#fff',border:'none'}} onClick={onBack}>← Back to Loans</button>
         </div>
       </div>
 
-      {/* Progress steps */}
-      <div className="f1003-progress">
-        <div className="f1003-steps">
-          {SECTIONS.map((s,i)=>(
-            <button key={i} className={`f1003-step${currentStep===i?' active':''}${completedSteps.has(i)?' done':''}`} onClick={()=>goTo(i)}>
-              <span className="f1003-step-num">{completedSteps.has(i)?'✓':i+1}</span>
-              {s.label}
-            </button>
-          ))}
+      {/* ── 3 Main Tabs ── */}
+      <div style={{background:'#fff',borderBottom:'1px solid var(--border)',padding:'0 24px',display:'flex',alignItems:'center',gap:0,position:'sticky',top:52,zIndex:39}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>switchTab(t.id)}
+            style={{padding:'14px 22px',fontSize:15,fontWeight:600,color:activeTab===t.id?'var(--accent)':'var(--text-3)',
+              borderBottom:`2px solid ${activeTab===t.id?'var(--accent)':'transparent'}`,
+              background:'none',border:'none',borderTop:'none',borderLeft:'none',borderRight:'none',
+              cursor:'pointer',display:'flex',alignItems:'center',gap:7,transition:'all .15s',whiteSpace:'nowrap'}}>
+            <span>{t.icon}</span>{t.label}
+            {activeTab===t.id && <span style={{width:7,height:7,borderRadius:'50%',background:'var(--accent)',marginLeft:2}}/>}
+          </button>
+        ))}
+        <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:13,color:'var(--text-3)'}}>
+            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':'Financial Information'}
+          </span>
         </div>
-        <div className="f1003-progress-bar" style={{width:`${Math.round(((currentStep+1)/10)*100)}%`}}/>
       </div>
 
-      {/* Body */}
+      {/* ── Body ── */}
       <div className="f1003-body">
         {loading ? (
           <div style={{textAlign:'center',padding:'60px 20px',color:'var(--text-3)'}}>
             <div style={{fontSize:32,marginBottom:12}}>⏳</div>
-            <div style={{fontSize:14}}>Loading existing application data...</div>
+            <div style={{fontSize:15}}>Loading application data...</div>
           </div>
         ) : <>
-        <div className="f1003-section-hdr">
-          <span>{SECTIONS[currentStep].hdrLabel}</span>
-          <span style={{fontSize:11,opacity:.7}}>Step {currentStep+1} of 10</span>
-        </div>
-        <div className="f1003-section-body">
-          {currentStep===0 && <Section1PersonalInfo borrowers={borrowers} setBorrowers={setBorrowers} activeBIdx={activeBIdx} setActiveBIdx={setActiveBIdx}/>}
-          {currentStep===1 && <Section2Employment data={formData} setData={setFormData}/>}
-          {currentStep===2 && <Section3Assets data={formData} setData={setFormData}/>}
-          {currentStep===3 && <Section4Liabilities data={formData} setData={setFormData}/>}
-          {currentStep===4 && <Section5REO data={formData} setData={setFormData}/>}
-          {currentStep===5 && <Section6LoanInfo data={formData} setData={setFormData}/>}
-          {currentStep===6 && <Section7Housing data={formData} setData={setFormData}/>}
-          {currentStep===7 && <Section8DOT data={formData} setData={setFormData} loanData={formData}/>}
-          {currentStep===8 && <Section9Declarations data={formData} setData={setFormData} borrowers={borrowers}/>}
-          {currentStep===9 && <Section10GovtMonitoring data={formData} setData={setFormData} borrowers={borrowers}/>}
-        </div>
+
+        {/* ════════════════════════════
+            TAB 1 — LOAN & PROPERTY
+        ════════════════════════════ */}
+        {activeTab==='loan' && <>
+          {/* Sub-tabs */}
+          <div style={{display:'flex',gap:0,borderBottom:'1px solid var(--border)',marginBottom:24}}>
+            {[['loan','Loan Info'],['property','Property Info'],['title','Title Info']].map(([id,lbl])=>(
+              <button key={id} onClick={()=>setLoanSubTab(id)}
+                style={{padding:'10px 20px',fontSize:14,fontWeight:500,
+                  color:loanSubTab===id?'var(--accent)':'var(--text-3)',
+                  borderBottom:`2px solid ${loanSubTab===id?'var(--accent)':'transparent'}`,
+                  background:'none',border:'none',borderTop:'none',borderLeft:'none',borderRight:'none',
+                  cursor:'pointer',transition:'all .15s',display:'flex',alignItems:'center',gap:6}}>
+                {loanSubTab===id && <span style={{width:8,height:8,borderRadius:'50%',background:'#ef4444'}}/>}
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {/* LOAN INFO sub-tab */}
+          {loanSubTab==='loan' && <>
+            <div style={{display:'flex',gap:0,marginBottom:24}}>
+              {['Purchase','Refinance'].map(pt=>(
+                <button key={pt} onClick={()=>setFormData(p=>({...p,mortgagePurpose:pt}))}
+                  style={{padding:'10px 32px',fontSize:15,fontWeight:500,border:'1px solid var(--border)',
+                    background:formData.mortgagePurpose===pt?'var(--accent-light)':'#fff',
+                    color:formData.mortgagePurpose===pt?'var(--accent)':'var(--text-2)',
+                    borderRight:pt==='Purchase'?'none':'1px solid var(--border)',
+                    borderRadius:pt==='Purchase'?'8px 0 0 8px':'0 8px 8px 0',cursor:'pointer'}}>
+                  {pt}
+                </button>
+              ))}
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
+              <div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group">
+                    <label className="form-label">Appraised Value *</label>
+                    <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Base Loan Amount *</label>
+                    <div className="dollar-wrap"><input className="form-input" type="number" value={formData.baseLoan||''} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/></div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">LTV *</label>
+                    <div style={{padding:'9px 12px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:15,fontWeight:600,color:'var(--accent)'}}>
+                      {formData.appraisedVal && formData.baseLoan ? ((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(3)+'%' : '--'}
+                    </div>
+                  </div>
+                </div>
+
+                {formData.mortgagePurpose==='Refinance' && <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group">
+                    <label className="form-label">Refinance Type *</label>
+                    <select className="form-select" value={formData.refiType||''} onChange={e=>setFormData(p=>({...p,refiType:e.target.value}))}>
+                      <option value="">Select</option>
+                      <option>Rate/Term</option><option>Cash-Out</option><option>Streamline</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Cash-Out Purpose *</label>
+                    <select className="form-select" value={formData.cashOutPurpose||''} onChange={e=>setFormData(p=>({...p,cashOutPurpose:e.target.value}))}>
+                      <option value="">Select</option>
+                      <option>Debt Consolidation</option><option>Home Improvement</option><option>Other</option>
+                    </select>
+                  </div>
+                </div>}
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group">
+                    <label className="form-label">Mortgage Type *</label>
+                    <select className="form-select" value={formData.mortgageType||''} onChange={e=>setFormData(p=>({...p,mortgageType:e.target.value}))}>
+                      <option value="">Select</option>
+                      <option>Conventional</option><option>FHA</option><option>VA</option><option>USDA</option><option>NON-QM</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Lien Position *</label>
+                    <select className="form-select" value={formData.lienPosition||'First Lien'} onChange={e=>setFormData(p=>({...p,lienPosition:e.target.value}))}>
+                      <option>First Lien</option><option>Second Lien</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group">
+                    <label className="form-label">Amortization Type</label>
+                    <select className="form-select" value={formData.amortType||'Fixed'} onChange={e=>setFormData(p=>({...p,amortType:e.target.value}))}>
+                      <option>Fixed</option><option>ARM</option><option>GPM</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Note Rate</label>
+                    <input className="form-input" type="number" step="0.001" value={formData.rate||''} onChange={e=>setFormData(p=>({...p,rate:e.target.value}))} placeholder="e.g. 7.625"/>
+                  </div>
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                  <div className="form-group">
+                    <label className="form-label">Amortization Term</label>
+                    <select className="form-select" value={formData.amortTerm||'360'} onChange={e=>setFormData(p=>({...p,amortTerm:e.target.value}))}>
+                      <option value="360">30 Year (360 months)</option>
+                      <option value="240">20 Year (240 months)</option>
+                      <option value="180">15 Year (180 months)</option>
+                      <option value="120">10 Year (120 months)</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Qualifying Credit Score</label>
+                    <input className="form-input" type="number" value={formData.creditScore||''} onChange={e=>setFormData(p=>({...p,creditScore:e.target.value}))} placeholder="580–850"/>
+                  </div>
+                </div>
+              </div>
+
+              {/* Proposed Monthly Payment panel */}
+              <div style={{background:'var(--cream)',border:'1px solid var(--border)',borderRadius:10,padding:20}}>
+                <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:16,display:'flex',justifyContent:'space-between'}}>
+                  <span>Proposed Monthly Payment</span>
+                </div>
+                {[['First Mortgage', (() => {
+                  const p = parseFloat(formData.baseLoan)||0;
+                  const r = (parseFloat(formData.rate)||0)/100/12;
+                  const n = parseInt(formData.amortTerm||360);
+                  return r ? (p*(r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1)).toFixed(2) : '--';
+                })()],
+                ['HOI','--'],['Property Taxes','--'],['MI / MIP','--'],['Association Dues','--']].map(([lbl,val])=>(
+                  <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                    <span style={{color:'var(--text-2)'}}>{lbl}</span>
+                    <span style={{fontWeight:600,color:'var(--text)'}}>{val==='--'?'--':('$'+Number(val).toLocaleString())}</span>
+                  </div>
+                ))}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0 0',fontSize:16,fontWeight:700}}>
+                  <span>Total PITI</span>
+                  <span style={{color:'var(--accent)'}}>
+                    {(() => {
+                      const p = parseFloat(formData.baseLoan)||0;
+                      const r = (parseFloat(formData.rate)||0)/100/12;
+                      const n = parseInt(formData.amortTerm||360);
+                      const pmt = r ? (p*(r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1)) : 0;
+                      return pmt ? '$'+pmt.toFixed(2) : '--';
+                    })()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </>}
+
+          {/* PROPERTY INFO sub-tab */}
+          {loanSubTab==='property' && <>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:20}}>
+              <div>
+                <div className="form-group" style={{marginBottom:16}}>
+                  <label className="form-label">Subject Property Address *</label>
+                  <input className="form-input" value={formData.spAddr1||''} onChange={e=>setFormData(p=>({...p,spAddr1:e.target.value}))} placeholder="Street address or TBD"/>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group"><label className="form-label">City</label><input className="form-input" value={formData.spCity||''} onChange={e=>setFormData(p=>({...p,spCity:e.target.value}))}/></div>
+                  <div className="form-group"><label className="form-label">State</label>
+                    <select className="form-select" value={formData.spState||''} onChange={e=>setFormData(p=>({...p,spState:e.target.value}))}>
+                      <option value="">Select</option>
+                      {['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming'].map(s=><option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group"><label className="form-label">ZIP Code</label><input className="form-input" value={formData.spZip||''} onChange={e=>setFormData(p=>({...p,spZip:e.target.value}))}/></div>
+                  <div className="form-group"><label className="form-label">Year Built</label><input className="form-input" type="number" value={formData.spYearBuilt||''} onChange={e=>setFormData(p=>({...p,spYearBuilt:e.target.value}))} placeholder="YYYY"/></div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group"><label className="form-label">Property Type *</label>
+                    <select className="form-select" value={formData.propType||'Single Family Residence'} onChange={e=>setFormData(p=>({...p,propType:e.target.value}))}>
+                      <option>Single Family (1-4 Units)</option><option>Condo</option><option>Townhouse</option><option>Manufactured</option><option>2 Unit</option><option>3 Unit</option><option>4 Unit</option>
+                    </select>
+                  </div>
+                  <div className="form-group"><label className="form-label">Attachment Type</label>
+                    <select className="form-select" value={formData.attachType||'Detached'} onChange={e=>setFormData(p=>({...p,attachType:e.target.value}))}>
+                      <option>Detached</option><option>Attached</option><option>Semi-Detached</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="form-group" style={{marginBottom:16}}>
+                  <label className="form-label">Occupancy *</label>
+                  <div style={{display:'flex',gap:0}}>
+                    {['Primary Residence','Second Home','Investment'].map((o,i)=>(
+                      <button key={o} onClick={()=>setFormData(p=>({...p,occupancy:o}))}
+                        style={{padding:'10px 16px',fontSize:14,fontWeight:500,border:'1px solid var(--border)',
+                          background:formData.occupancy===o?'var(--accent)':'#fff',
+                          color:formData.occupancy===o?'#fff':'var(--text-2)',
+                          borderRight:i<2?'none':'1px solid var(--border)',
+                          borderRadius:i===0?'8px 0 0 8px':i===2?'0 8px 8px 0':'0',cursor:'pointer',fontSize:13}}>
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div className="form-group"><label className="form-label">No. of Units</label><input className="form-input" type="number" min="1" max="4" value={formData.numUnits||'1'} onChange={e=>setFormData(p=>({...p,numUnits:e.target.value}))}/></div>
+                  <div className="form-group"><label className="form-label">Construction Method</label>
+                    <select className="form-select" value={formData.constructionMethod||'Site Built'} onChange={e=>setFormData(p=>({...p,constructionMethod:e.target.value}))}>
+                      <option>Site Built</option><option>Manufactured</option><option>Modular</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                  <div className="form-group"><label className="form-label">Acreage</label><input className="form-input" type="number" step="0.01" value={formData.acreage||''} onChange={e=>setFormData(p=>({...p,acreage:e.target.value}))} placeholder="acres"/></div>
+                  <div className="form-group"><label className="form-label">Original Cost</label><div className="dollar-wrap"><input className="form-input" type="number" value={formData.origCost||''} onChange={e=>setFormData(p=>({...p,origCost:e.target.value}))}/></div></div>
+                </div>
+              </div>
+            </div>
+          </>}
+
+          {/* TITLE INFO sub-tab */}
+          {loanSubTab==='title' && <>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:20}}>
+              <div className="form-group">
+                <label className="form-label">Manner in which Title will be held</label>
+                <select className="form-select" value={formData.mannerHeld||''} onChange={e=>setFormData(p=>({...p,mannerHeld:e.target.value}))}>
+                  <option value="">Select</option>
+                  <option>Single Man/Woman</option><option>Married Man/Woman</option>
+                  <option>Joint Tenants</option><option>Tenants in Common</option><option>Community Property</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Trust Information</label>
+                <select className="form-select" value={formData.trustInfo||''} onChange={e=>setFormData(p=>({...p,trustInfo:e.target.value}))}>
+                  <option value="">Select</option><option>Living Trust</option><option>Land Trust</option><option>Other</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Title to the property will be held in</label>
+                <input className="form-input" value={formData.titleName||''} onChange={e=>setFormData(p=>({...p,titleName:e.target.value}))} placeholder="Borrower name(s)"/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Property Rights</label>
+                <select className="form-select" value={formData.propRights||'Fee Simple'} onChange={e=>setFormData(p=>({...p,propRights:e.target.value}))}>
+                  <option>Fee Simple</option><option>Leasehold</option>
+                </select>
+              </div>
+              <div className="form-group form-full">
+                <label className="form-label">Vesting To Read</label>
+                <textarea className="form-textarea" value={formData.vestingRead||''} onChange={e=>setFormData(p=>({...p,vestingRead:e.target.value}))} rows={3}/>
+              </div>
+            </div>
+          </>}
+        </>}
+
+        {/* ════════════════════════════
+            TAB 2 — BORROWER INFO
+        ════════════════════════════ */}
+        {activeTab==='borrower' && <>
+          {/* Borrower tabs */}
+          <div style={{display:'flex',alignItems:'center',gap:0,marginBottom:20,borderBottom:'1px solid var(--border)'}}>
+            {borrowers.map((b,i)=>(
+              <button key={i} onClick={()=>setActiveBIdx(i)}
+                style={{padding:'10px 20px',fontSize:14,fontWeight:600,
+                  background:activeBIdx===i?'var(--accent-light)':'transparent',
+                  color:activeBIdx===i?'var(--accent)':'var(--text-3)',
+                  border:'none',borderBottom:`2px solid ${activeBIdx===i?'var(--accent)':'transparent'}`,
+                  borderRadius:'8px 8px 0 0',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+                <span style={{width:28,height:28,borderRadius:'50%',background:activeBIdx===i?'var(--accent)':'#e5e7eb',
+                  color:activeBIdx===i?'#fff':'var(--text-3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700}}>
+                  {(b.firstName?.[0]||'')+(b.lastName?.[0]||'')||'B'}
+                </span>
+                {b.firstName && b.lastName ? `${b.firstName} ${b.lastName}` : b.label}
+                {i===0 && <span style={{fontSize:11,background:'var(--accent)',color:'#fff',padding:'1px 6px',borderRadius:8}}>Primary</span>}
+              </button>
+            ))}
+            <button className="btn btn-ghost btn-sm" style={{marginLeft:8,marginBottom:2}} onClick={()=>{
+              const labels=['Co-Borrower','Borrower 3','Borrower 4'];
+              setBorrowers(p=>[...p,emptyBorrower1003(labels[p.length-1]||`Borrower ${p.length+1}`)]);
+              setActiveBIdx(borrowers.length);
+            }}>+ Add Co-Borrower</button>
+            {activeBIdx>0 && <button className="btn btn-danger btn-sm" style={{marginLeft:4,marginBottom:2}} onClick={()=>{setBorrowers(p=>p.filter((_,i)=>i!==activeBIdx));setActiveBIdx(0);}}>✕ Remove</button>}
+          </div>
+
+          {/* Borrower sub-tabs */}
+          <div style={{display:'flex',gap:0,borderBottom:'1px solid var(--border)',marginBottom:24}}>
+            {[['basic','Basic Details'],['declarations','Declarations'],['demographics','Demographics']].map(([id,lbl])=>(
+              <button key={id} onClick={()=>setBorrowerSubTab(id)}
+                style={{padding:'10px 18px',fontSize:14,fontWeight:500,
+                  color:borrowerSubTab===id?'var(--accent)':'var(--text-3)',
+                  borderBottom:`2px solid ${borrowerSubTab===id?'var(--accent)':'transparent'}`,
+                  background:'none',border:'none',borderTop:'none',borderLeft:'none',borderRight:'none',cursor:'pointer'}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {/* BASIC DETAILS */}
+          {borrowerSubTab==='basic' && <Section1PersonalInfo borrowers={borrowers} setBorrowers={setBorrowers} activeBIdx={activeBIdx} setActiveBIdx={setActiveBIdx}/>}
+
+          {/* DECLARATIONS */}
+          {borrowerSubTab==='declarations' && <Section9Declarations data={formData} setData={setFormData} borrowers={borrowers}/>}
+
+          {/* DEMOGRAPHICS */}
+          {borrowerSubTab==='demographics' && <Section10GovtMonitoring data={formData} setData={setFormData} borrowers={borrowers}/>}
+        </>}
+
+        {/* ════════════════════════════
+            TAB 3 — FINANCIAL INFO
+        ════════════════════════════ */}
+        {activeTab==='financial' && <>
+          <div style={{marginBottom:28}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>
+                Monthly Income: <span style={{color:'var(--accent)'}}>
+                  ${(formData.incomes||[]).reduce((a,x)=>a+['base','overtime','bonuses','commission','tips','seasonal','otherW2'].reduce((b,k)=>b+(parseFloat(x[k])||0),0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+                </span>
+              </div>
+            </div>
+            <Section2Employment data={formData} setData={setFormData}/>
+          </div>
+
+          <div style={{marginBottom:28}}>
+            <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:16}}>
+              Total Assets: <span style={{color:'var(--accent)'}}>
+                ${(formData.assets||[]).reduce((a,x)=>a+(parseFloat(x.value)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+              </span>
+            </div>
+            <Section3Assets data={formData} setData={setFormData}/>
+          </div>
+
+          <div style={{marginBottom:28}}>
+            <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:4}}>
+              Monthly Liability: <span style={{color:'#b91c1c'}}>
+                ${(formData.liabilities||[]).filter(l=>l.dti==='Include').reduce((a,x)=>a+(parseFloat(x.payment)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+              </span>
+              <span style={{fontSize:13,color:'var(--text-3)',marginLeft:12,fontWeight:400}}>
+                Paid Off: $0.00 · Total: ${(formData.liabilities||[]).reduce((a,x)=>a+(parseFloat(x.balance)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+              </span>
+            </div>
+            <Section4Liabilities data={formData} setData={setFormData}/>
+          </div>
+
+          <div style={{marginBottom:28}}>
+            <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:16}}>Real Estate Owned</div>
+            <Section5REO data={formData} setData={setFormData}/>
+          </div>
+        </>}
+
         </>}
       </div>
 
-      {/* Footer nav */}
+      {/* ── Footer ── */}
       <div className="f1003-footer">
         <div className="f1003-footer-info">
-          Section <strong>{currentStep+1}</strong> of <strong>10</strong> · <strong>{SECTIONS[currentStep].label}</strong>
-          {' · '}<span style={{color:'var(--accent)'}}>{loan.borrower}</span>
+          <span style={{color:'var(--accent)',fontWeight:600}}>{loan.borrower || 'New Application'}</span>
+          {' · '}Loan #{loan.loan_number}
+          {' · '}<span style={{color:'var(--text-3)'}}>{TABS.find(t=>t.id===activeTab)?.label}</span>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button className="btn btn-secondary" onClick={()=>goTo(Math.max(0,currentStep-1))} disabled={currentStep===0}>← Back</button>
-          {currentStep < 9
-            ? <button className="btn btn-primary" onClick={()=>goTo(currentStep+1)}>Next →</button>
-            : <button className="btn" style={{background:'#15803d',color:'#fff'}} onClick={handleSave}>✓ Save & Complete</button>
+          <button className="btn btn-secondary" onClick={()=>{
+            const idx=TABS.findIndex(t=>t.id===activeTab);
+            if(idx>0) switchTab(TABS[idx-1].id);
+          }} disabled={activeTab==='loan'}>← Back</button>
+          {activeTab!=='financial'
+            ? <button className="btn btn-primary" onClick={()=>{
+                const idx=TABS.findIndex(t=>t.id===activeTab);
+                switchTab(TABS[idx+1].id);
+              }}>Next →</button>
+            : <button className="btn" style={{background:'#15803d',color:'#fff'}} onClick={async()=>{ await handleSave(); setTimeout(()=>onBack(),800); }}>✓ Save & Complete</button>
           }
         </div>
       </div>
