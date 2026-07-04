@@ -334,6 +334,119 @@ const GlobalStyles = () => (
     .b-tab-1003 { padding: 8px 18px; font-size: 13px; font-weight: 500; color: var(--text-3); border-bottom: 2px solid transparent; cursor: pointer; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; transition: all .15s; }
     .b-tab-1003:hover { color: var(--text-2); }
     .b-tab-1003.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── MOBILE RESPONSIVE ─────────────────────────────────────── */
+    /* iPad (768px) and iPhone (375px) */
+
+    @media (max-width: 1024px) {
+      .dash-grid { grid-template-columns: repeat(2,1fr); gap: 12px; }
+      .dash-row { grid-template-columns: 1fr; }
+      .contacts-grid { grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); }
+    }
+
+    @media (max-width: 768px) {
+      /* Nav */
+      #nav { padding: 0 12px; height: 48px; }
+      .nav-logo { font-size: 16px; margin-right: 10px; }
+      .nav-links { gap: 0; overflow-x: auto; }
+      .nav-link { font-size: 12px; padding: 5px 8px; }
+      .nav-right { gap: 6px; }
+      .nav-right span { display: none; }
+
+      /* Page */
+      .page { padding: 14px 12px; }
+      .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .page-title { font-size: 18px; }
+
+      /* Tables — horizontal scroll */
+      .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { min-width: 600px; }
+
+      /* Forms */
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid-3 { grid-template-columns: 1fr; }
+
+      /* Dashboard */
+      .dash-grid { grid-template-columns: repeat(2,1fr); gap: 10px; }
+      .kpi-value { font-size: 22px; }
+      .dash-row { grid-template-columns: 1fr; }
+
+      /* 1003 Form */
+      .f1003-topbar { padding: 0 12px; height: 48px; }
+      .f1003-loan-name { font-size: 13px; }
+      .f1003-loan-meta { font-size: 10px; }
+      .f1003-body { padding: 16px 12px 100px; }
+      .f1003-progress { padding: 0 8px; }
+      .f1003-step { padding: 8px 8px; font-size: 10px; }
+      .f1003-footer { padding: 10px 12px; }
+
+      /* Auth */
+      .auth-main { padding: 20px 12px; }
+      .auth-card-body { padding: 20px 16px; }
+      .auth-title { font-size: 20px; }
+
+      /* Borrower portal */
+      .b-header { padding: 0 12px; height: 48px; }
+      .b-advisor-pill { display: none; }
+      .b-body { padding: 16px 12px 80px; }
+
+      /* Review Fees */
+      .fees-grid { grid-template-columns: 1fr 80px 80px 70px 40px 32px !important; }
+    }
+
+    @media (max-width: 480px) {
+      /* iPhone — most compact */
+      #nav { height: 44px; }
+      .nav-link { font-size: 11px; padding: 4px 6px; }
+      .nav-logo-sub { display: none; }
+
+      /* Page */
+      .page { padding: 12px 10px; }
+      .page-title { font-size: 17px; }
+      .btn { padding: 7px 12px; font-size: 13px; }
+      .btn-sm { padding: 4px 8px; font-size: 11px; }
+
+      /* Dashboard KPIs — 2 col */
+      .dash-grid { grid-template-columns: repeat(2,1fr); gap: 8px; }
+      .kpi-card { padding: 12px 14px; }
+      .kpi-value { font-size: 20px; }
+      .kpi-label { font-size: 10px; }
+
+      /* Forms */
+      .modal { border-radius: 0; max-height: 100vh; }
+      .modal-overlay { padding: 0; align-items: flex-end; }
+      .modal-body { padding: 16px; }
+
+      /* Tabs */
+      .f1003-step { font-size: 9px; padding: 6px 6px; }
+      .f1003-step-num { width: 14px; height: 14px; font-size: 8px; }
+
+      /* Search */
+      .search-wrap input { width: 160px; font-size: 13px; }
+      .search-wrap input:focus { width: 180px; }
+
+      /* Review Fees on mobile — stack columns */
+      .fees-row-grid { grid-template-columns: 1fr !important; }
+
+      /* Auth card full width */
+      .auth-card { border-radius: 12px; }
+
+      /* Borrower portal */
+      .b-header-left { gap: 8px; }
+      .b-borrower-name { font-size: 12px; }
+      .b-page-title { font-size: 18px; }
+
+      /* 3-tab form */
+      .f1003-topbar .f1003-loan-meta { display: none; }
+    }
+
+    /* Touch-friendly tap targets */
+    @media (pointer: coarse) {
+      .btn, .btn-sm, .nav-link, .btn-icon { min-height: 40px; }
+      .f1003-step { min-height: 40px; }
+      input, select, textarea { min-height: 44px; font-size: 16px !important; }
+      .b-logout-btn { min-height: 36px; padding: 8px 14px; }
+    }
   `}</style>
 );
 
@@ -1787,7 +1900,15 @@ function Form1003({ loan, onBack, showToast }) {
     setFeesLoading(true);
     try {
       const data = await apiFetch(`/api/fees/${loan.id}`).catch(()=>[]);
-      setFees(Array.isArray(data) ? data : []);
+      const feeList = Array.isArray(data) ? data : [];
+      if (feeList.length === 0 && loan.id) {
+        // No fees yet — seed defaults for this existing loan
+        await seedDefaultFees(loan.id);
+        const seeded = await apiFetch(`/api/fees/${loan.id}`).catch(()=>[]);
+        setFees(Array.isArray(seeded) ? seeded : []);
+      } else {
+        setFees(feeList);
+      }
     } finally { setFeesLoading(false); }
   };
 
@@ -2292,7 +2413,17 @@ function Form1003({ loan, onBack, showToast }) {
           {/* Header row */}
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
             <div style={{fontSize:22,fontWeight:700,color:'var(--text)'}}>Review Fees</div>
-            <div style={{display:'flex',gap:8}}>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <button onClick={async()=>{
+                if(!window.confirm('Reset all fees to ARIVE defaults? This will delete existing fees and re-seed.')) return;
+                setFeesLoading(true);
+                // Delete all existing fees for this loan then re-seed
+                await Promise.all(fees.map(f=>apiFetch(`/api/fees/${f.id}`,{method:'DELETE'}).catch(()=>{})));
+                await seedDefaultFees(loan.id);
+                await loadFees();
+              }} style={{fontSize:12,color:'var(--text-3)',background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'4px 10px',cursor:'pointer'}}>
+                ↺ Reset to Defaults
+              </button>
               <span style={{fontSize:13,color:'var(--text-3)'}}>
                 Est Closing Date: <strong>--</strong>
               </span>
@@ -2320,13 +2451,19 @@ function Form1003({ loan, onBack, showToast }) {
                 <div key={sec.id} style={{marginBottom:0}}>
                   {/* Section header */}
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px',background:'#f8fafc',border:'1px solid var(--border)',borderTop:'none',fontSize:13,fontWeight:700,color:'var(--text)'}}>
-                    <span>{sec.label}</span>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <span>{sec.label}</span>
+                      <button onClick={()=>addFee(sec.id)}
+                        style={{display:'flex',alignItems:'center',gap:3,fontSize:12,color:'var(--accent)',background:'var(--accent-light)',border:'1px solid #bfdbfe',borderRadius:5,cursor:'pointer',fontWeight:600,padding:'2px 8px'}}>
+                        + Fee
+                      </button>
+                    </div>
                     <span style={{color:'var(--accent)',fontWeight:700}}>{secTotal>0?'$'+secTotal.toFixed(2):''}</span>
                   </div>
 
                   {/* Fee lines */}
                   {secFees.map(fee => (
-                    <div key={fee.id} style={{display:'grid',gridTemplateColumns:'1fr 130px 130px 100px 60px 40px',gap:8,padding:'7px 16px',border:'1px solid var(--border)',borderTop:'none',alignItems:'center',background:'#fff'}}>
+                    <div key={fee.id} className="fees-row-grid" style={{display:'grid',gridTemplateColumns:'1fr 130px 130px 100px 60px 40px',gap:8,padding:'7px 16px',border:'1px solid var(--border)',borderTop:'none',alignItems:'center',background:'#fff'}}>
                       {/* Description */}
                       <div style={{display:'flex',alignItems:'center',gap:6}}>
                         {fee.is_apr ? <span style={{fontSize:10,background:'#dbeafe',color:'#1d4ed8',padding:'1px 5px',borderRadius:3,fontWeight:700,flexShrink:0}}>APR</span> : <span style={{width:28}}/>}
@@ -2334,6 +2471,11 @@ function Form1003({ loan, onBack, showToast }) {
                           onBlur={()=>updateFeeDB(fee)}
                           placeholder="Fee description..."
                           style={{flex:1,border:'none',outline:'none',fontSize:14,color:'var(--text)',background:'transparent'}}/>
+                        {fee.months != null && fee.months > 0 &&
+                          <span style={{fontSize:11,color:'var(--accent)',whiteSpace:'nowrap',cursor:'pointer',textDecoration:'underline',flexShrink:0}}>
+                            {fee.months} months
+                          </span>
+                        }
                       </div>
                       {/* At Closing */}
                       <div style={{position:'relative'}}>
@@ -2379,13 +2521,6 @@ function Form1003({ loan, onBack, showToast }) {
                     </div>
                   ))}
 
-                  {/* Add fee button */}
-                  <div style={{border:'1px solid var(--border)',borderTop:'none',padding:'6px 16px',background:'#fafafa'}}>
-                    <button onClick={()=>addFee(sec.id)}
-                      style={{display:'flex',alignItems:'center',gap:5,fontSize:13,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',fontWeight:500}}>
-                      + Add Fee
-                    </button>
-                  </div>
                 </div>
               );
             })}
@@ -2455,8 +2590,64 @@ function Form1003({ loan, onBack, showToast }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LOANS PAGE
+// DEFAULT ARIVE-STYLE FEES — seeded on new loan creation
 // ─────────────────────────────────────────────────────────────────
+const DEFAULT_FEES = [
+  // A — Origination Charges
+  { section:'A', description:'__% of Loan Amount (Points)',              at_closing:0,    before_closing:0, paid_by:'B', is_apr:1, sort_order:1 },
+  { section:'A', description:'Underwriting Fee',                         at_closing:1250, before_closing:0, paid_by:'B', is_apr:1, sort_order:2 },
+  { section:'A', description:'Lender Credit',                            at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:3 },
+  // B — Services Borrower Cannot Shop For
+  { section:'B', description:'Appraisal Fee',                            at_closing:750,  before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
+  { section:'B', description:'Credit Report Fee',                        at_closing:108,  before_closing:0, paid_by:'B', is_apr:0, sort_order:2 },
+  { section:'B', description:'Flood Certificate Fee',                    at_closing:8,    before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
+  { section:'B', description:'MERS Registration Fee',                    at_closing:24.95,before_closing:0, paid_by:'B', is_apr:1, sort_order:4 },
+  { section:'B', description:'Tax Service Fee',                          at_closing:85,   before_closing:0, paid_by:'B', is_apr:1, sort_order:5 },
+  // C — Services Borrower Can Shop For
+  { section:'C', description:'Title - Admin Processing Fee',             at_closing:175,  before_closing:0, paid_by:'B', is_apr:1, sort_order:1 },
+  { section:'C', description:'Title - Courier/Wire/E-Mail Fee',          at_closing:75,   before_closing:0, paid_by:'B', is_apr:1, sort_order:2 },
+  { section:'C', description:'Title - Deed Preparation Fee',             at_closing:150,  before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
+  { section:'C', description:'Title - Insurance Binder',                 at_closing:700,  before_closing:0, paid_by:'B', is_apr:0, sort_order:4 },
+  { section:'C', description:"Title - Lender's Closing Protection Letter", at_closing:50, before_closing:0, paid_by:'B', is_apr:1, sort_order:5 },
+  { section:'C', description:"Title - Lender's Title Insurance",         at_closing:1873, before_closing:0, paid_by:'B', is_apr:1, sort_order:6 },
+  { section:'C', description:'Title - Title Search',                     at_closing:500,  before_closing:0, paid_by:'B', is_apr:0, sort_order:7 },
+  // D — Reserved (empty by default, matches ARIVE)
+  // E — Taxes and Other Government Fees
+  { section:'E', description:'Transfer Taxes',                           at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
+  { section:'E', description:'Transfer Tax Total',                       at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:2 },
+  { section:'E', description:'Recording Fees - Deed',                    at_closing:25,   before_closing:0, paid_by:'B', is_apr:0, sort_order:3 },
+  { section:'E', description:'Recording Fees - Mortgage',                at_closing:25,   before_closing:0, paid_by:'B', is_apr:0, sort_order:4 },
+  { section:'E', description:'Recording Fees - Other',                   at_closing:10,   before_closing:0, paid_by:'B', is_apr:0, sort_order:5 },
+  { section:'E', description:'State Tax/Stamps - Deed',                  at_closing:580,  before_closing:0, paid_by:'B', is_apr:0, sort_order:6 },
+  { section:'E', description:'State Tax/Stamps - Mortgage',              at_closing:1653, before_closing:0, paid_by:'B', is_apr:0, sort_order:7 },
+  // F — Prepaids
+  { section:'F', description:'Hazard Insurance Premium',                 at_closing:1740, before_closing:0, paid_by:'B', is_apr:0, sort_order:1, months:12 },
+  { section:'F', description:'Mortgage Insurance Premium',               at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:2, months:0  },
+  { section:'F', description:'Prepaid Interest',                         at_closing:0,    before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
+  { section:'F', description:'Property Taxes',                           at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:4, months:0  },
+  { section:'F', description:'Supplemental Property Insurance Premium',  at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:5, months:0  },
+  // G — Initial Escrow Payment at Closing
+  { section:'G', description:'Hazard Insurance Reserve',                 at_closing:435,  before_closing:0, paid_by:'B', is_apr:0, sort_order:1, months:3  },
+  { section:'G', description:'Mortgage Insurance Reserve',               at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:2, months:0  },
+  { section:'G', description:'Property Taxes',                           at_closing:3519.20, before_closing:0, paid_by:'B', is_apr:0, sort_order:3, months:10 },
+  { section:'G', description:'Supplemental Property Insurance Reserve',  at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:4, months:0  },
+  { section:'G', description:'Aggregate Adjustment',                     at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:5 },
+  // H — Other
+  { section:'H', description:"Title - Owner's Title Insurance (Optional)", at_closing:1182, before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
+];
+
+async function seedDefaultFees(loanId) {
+  try {
+    for (const fee of DEFAULT_FEES) {
+      await apiFetch('/api/fees', {
+        method: 'POST',
+        body: { loan_id: loanId, ...fee, before_closing: 0 }
+      }).catch(()=>{});
+    }
+  } catch {}
+}
+
+
 const LOAN_STATUSES = ["App Intake","Loan Setup","Pre-Approved","Processing","Closing","Funded"];
 const LOAN_PURPOSES = ["Purchase","Refinance","Cash-Out Refinance","Investment"];
 const LOAN_PRODUCTS = ["FHA 30 Year Fixed","CONF CONV 30 Year","NON-QM Fixed 30","VA 30 Year Fixed","ARM 5/1","TBD"];
@@ -2535,6 +2726,8 @@ function LoansPage({ showToast }) {
         mlo_id:           1,
       });
       setLoans(p => [newLoan, ...p]);
+      // Seed default ARIVE-style fees for this loan
+      if (newLoan?.id) await seedDefaultFees(newLoan.id);
       setOpen1003(newLoan);
     } catch (err) {
       showToast('⚠ Could not create loan: ' + err.message);
