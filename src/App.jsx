@@ -496,6 +496,10 @@ let _nextLoanId = 9, _nextLeadId = 6, _nextTaskId = 8;
 const API_URL = 'http://localhost:3001';
 
 // Mock DB fallback (used when API is unreachable e.g. local dev without backend)
+// Mock fees store for local dev (auto-seeded per loan on first open)
+let _fees = [];
+let _nextFeeId = 1;
+
 const mockDb = {
   loans: {
     getAll:  () => Promise.resolve([..._loans]),
@@ -534,6 +538,12 @@ const mockDb = {
     update:     (id,r) => Promise.resolve(r),
     setStatus:  () => Promise.resolve({success:true}),
     delete:     () => Promise.resolve({success:true}),
+  },
+  fees: {
+    getByLoan: (loanId) => Promise.resolve(_fees.filter(f=>f.loan_id===loanId)),
+    insert:    (r) => { const n={...r,id:_nextFeeId++}; _fees.push(n); return Promise.resolve(n); },
+    update:    (id,r) => { _fees=_fees.map(f=>f.id===id?{...f,...r}:f); return Promise.resolve(_fees.find(f=>f.id===id)); },
+    delete:    (id) => { _fees=_fees.filter(f=>f.id!==id); return Promise.resolve({success:true}); },
   },
 };
 
@@ -604,6 +614,12 @@ const db = {
     update:    (id,data) => apiFetch(`/api/form1003/${id}`,   { method:'PUT',   body:data }).catch(() => mockDb.form1003.update(id,data)),
     setStatus: (id,s)    => apiFetch(`/api/form1003/${id}/status`,{ method:'PATCH', body:{form_status:s} }).catch(() => mockDb.form1003.setStatus()),
     delete:    (id)      => apiFetch(`/api/form1003/${id}`,   { method:'DELETE' }).catch(() => mockDb.form1003.delete()),
+  },
+  fees: {
+    getByLoan: (loanId)  => apiFetch(`/api/fees/${loanId}`).catch(() => mockDb.fees.getByLoan(loanId)),
+    insert:    (data)    => apiFetch('/api/fees',        { method:'POST',   body:data }).catch(() => mockDb.fees.insert(data)),
+    update:    (id,data) => apiFetch(`/api/fees/${id}`,  { method:'PUT',    body:data }).catch(() => mockDb.fees.update(id,data)),
+    delete:    (id)      => apiFetch(`/api/fees/${id}`,  { method:'DELETE' }).catch(() => mockDb.fees.delete(id)),
   },
 };
 
@@ -1599,6 +1615,8 @@ function Form1003({ loan, onBack, showToast }) {
     trustInfo:'', vestingRead:'',
     pmt_hoi:'', pmt_property_taxes:'', pmt_mi:'', pmt_supplemental:'',
     pmt_association_dues:'', pmt_other:'', pmt_other_desc:'',
+    earnest_money_deposit:'', seller_credits:'', funds_for_borrower:'',
+    closing_costs_financed:'', adjustments_other_credits:'',
   });
 
   // ── Load data from BOTH loans table AND 1003 DB on open ────────
@@ -1640,6 +1658,11 @@ function Form1003({ loan, onBack, showToast }) {
       lienPosition:         loan.lien_position        || 'First Lien',
       amortTerm:            loan.amort_term           ? String(loan.amort_term) : '360',
       creditScore:          loan.credit_score         ? String(loan.credit_score) : '',
+      earnest_money_deposit:     loan.earnest_money_deposit     ? String(loan.earnest_money_deposit)     : '',
+      seller_credits:            loan.seller_credits            ? String(loan.seller_credits)            : '',
+      funds_for_borrower:        loan.funds_for_borrower        ? String(loan.funds_for_borrower)        : '',
+      closing_costs_financed:    loan.closing_costs_financed    ? String(loan.closing_costs_financed)    : '',
+      adjustments_other_credits: loan.adjustments_other_credits ? String(loan.adjustments_other_credits): '',
     }));
 
     // Pre-fill borrower name from loans table as fallback
@@ -1733,6 +1756,11 @@ function Form1003({ loan, onBack, showToast }) {
           pmt_association_dues: parseFloat(formData.pmt_association_dues) || null,
           pmt_other:            parseFloat(formData.pmt_other)            || null,
           pmt_other_desc:       formData.pmt_other_desc                   || null,
+          earnest_money_deposit:     parseFloat(formData.earnest_money_deposit)||null,
+          seller_credits:            parseFloat(formData.seller_credits)||null,
+          funds_for_borrower:        parseFloat(formData.funds_for_borrower)||null,
+          closing_costs_financed:    parseFloat(formData.closing_costs_financed)||null,
+          adjustments_other_credits: parseFloat(formData.adjustments_other_credits)||null,
         });
       }
 
@@ -1830,6 +1858,11 @@ function Form1003({ loan, onBack, showToast }) {
           pmt_association_dues: parseFloat(formData.pmt_association_dues) || null,
           pmt_other:            parseFloat(formData.pmt_other)            || null,
           pmt_other_desc:       formData.pmt_other_desc                   || null,
+          earnest_money_deposit:     parseFloat(formData.earnest_money_deposit)||null,
+          seller_credits:            parseFloat(formData.seller_credits)||null,
+          funds_for_borrower:        parseFloat(formData.funds_for_borrower)||null,
+          closing_costs_financed:    parseFloat(formData.closing_costs_financed)||null,
+          adjustments_other_credits: parseFloat(formData.adjustments_other_credits)||null,
         }).catch(()=>{});
 
         // Update 1003 table
@@ -1899,12 +1932,12 @@ function Form1003({ loan, onBack, showToast }) {
     if (!loan.id) return;
     setFeesLoading(true);
     try {
-      const data = await apiFetch(`/api/fees/${loan.id}`).catch(()=>[]);
+      const data = await db.fees.getByLoan(loan.id).catch(()=>[]);
       const feeList = Array.isArray(data) ? data : [];
       if (feeList.length === 0 && loan.id) {
         // No fees yet — seed defaults for this existing loan
         await seedDefaultFees(loan.id);
-        const seeded = await apiFetch(`/api/fees/${loan.id}`).catch(()=>[]);
+        const seeded = await db.fees.getByLoan(loan.id).catch(()=>[]);
         setFees(Array.isArray(seeded) ? seeded : []);
       } else {
         setFees(feeList);
@@ -1914,9 +1947,9 @@ function Form1003({ loan, onBack, showToast }) {
 
   const addFee = async (section) => {
     try {
-      const newFee = await apiFetch('/api/fees', {
-        method:'POST',
-        body:{ loan_id:loan.id, section, description:'', at_closing:0, before_closing:0, paid_by:'B', sort_order: fees.filter(f=>f.section===section).length }
+      const newFee = await db.fees.insert({
+        loan_id:loan.id, section, description:'', at_closing:0, before_closing:0, paid_by:'B', is_apr:0,
+        sort_order: fees.filter(f=>f.section===section).length
       }).catch(()=>null);
       if (newFee) setFees(p=>[...p, newFee]);
       else setFees(p=>[...p,{id:Date.now(),loan_id:loan.id,section,description:'',at_closing:0,before_closing:0,paid_by:'B',is_apr:0}]);
@@ -1928,12 +1961,12 @@ function Form1003({ loan, onBack, showToast }) {
   };
 
   const updateFeeDB = async (fee) => {
-    apiFetch(`/api/fees/${fee.id}`, { method:'PUT', body:fee }).catch(()=>{});
+    db.fees.update(fee.id, fee).catch(()=>{});
   };
 
   const deleteFee = async (id) => {
     setFees(p => p.filter(f => f.id!==id));
-    apiFetch(`/api/fees/${id}`, { method:'DELETE' }).catch(()=>{});
+    db.fees.delete(id).catch(()=>{});
   };
 
   // Load fees when switching to fees tab
@@ -2406,159 +2439,259 @@ function Form1003({ loan, onBack, showToast }) {
           </div>
         </>}
 
+
         {/* ════════════════════════════
             TAB 4 — REVIEW FEES
         ════════════════════════════ */}
         {activeTab==='fees' && <>
-          {/* Header row */}
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
-            <div style={{fontSize:22,fontWeight:700,color:'var(--text)'}}>Review Fees</div>
-            <div style={{display:'flex',gap:8,alignItems:'center'}}>
-              <button onClick={async()=>{
-                if(!window.confirm('Reset all fees to ARIVE defaults? This will delete existing fees and re-seed.')) return;
-                setFeesLoading(true);
-                // Delete all existing fees for this loan then re-seed
-                await Promise.all(fees.map(f=>apiFetch(`/api/fees/${f.id}`,{method:'DELETE'}).catch(()=>{})));
-                await seedDefaultFees(loan.id);
-                await loadFees();
-              }} style={{fontSize:12,color:'var(--text-3)',background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'4px 10px',cursor:'pointer'}}>
-                ↺ Reset to Defaults
-              </button>
-              <span style={{fontSize:13,color:'var(--text-3)'}}>
-                Est Closing Date: <strong>--</strong>
-              </span>
+
+          {/* Header */}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <span style={{fontSize:22,fontWeight:700,color:'var(--text)'}}>Review Fees</span>
+              <button style={{fontSize:12,color:'var(--accent)',background:'var(--accent-light)',border:'1px solid #bfdbfe',borderRadius:6,padding:'4px 12px',cursor:'pointer'}}>✏ Sections</button>
+              <button style={{fontSize:12,color:'var(--accent)',background:'var(--accent-light)',border:'1px solid #bfdbfe',borderRadius:6,padding:'4px 12px',cursor:'pointer'}}>⚡ Smart Fees</button>
             </div>
+            <button onClick={async()=>{
+              if(!window.confirm('Reset all fees to ARIVE defaults?')) return;
+              setFeesLoading(true);
+              await Promise.all(fees.map(f=>db.fees.delete(f.id).catch(()=>{})));
+              await seedDefaultFees(loan.id);
+              await loadFees();
+            }} style={{fontSize:12,color:'var(--text-3)',background:'none',border:'1px solid var(--border)',borderRadius:5,padding:'4px 10px',cursor:'pointer'}}>
+              ↺ Reset to Defaults
+            </button>
+          </div>
+
+          {/* Column headers */}
+          <div style={{display:'flex',padding:'5px 0',borderBottom:'2px solid var(--border)',fontSize:11,fontWeight:600,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em'}}>
+            <div style={{width:40}}/>
+            <div style={{flex:1}}>Fees</div>
+            <div style={{width:130,textAlign:'right',paddingRight:8}}>At Closing</div>
+            <div style={{width:130,textAlign:'right',paddingRight:8}}>Before Closing</div>
+            <div style={{width:80,textAlign:'center'}}>Paid By</div>
+            <div style={{width:36}}/>
           </div>
 
           {feesLoading && <div style={{textAlign:'center',padding:40,color:'var(--text-3)'}}>⏳ Loading fees...</div>}
 
           {!feesLoading && <>
-            {/* Column headers */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 130px 130px 100px 60px 40px',gap:8,padding:'8px 16px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'8px 8px 0 0',fontSize:12,fontWeight:600,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em'}}>
-              <div>Description</div>
-              <div style={{textAlign:'right'}}>At Closing</div>
-              <div style={{textAlign:'right'}}>Before Closing</div>
-              <div style={{textAlign:'center'}}>Paid By</div>
-              <div style={{textAlign:'center'}}>APR</div>
-              <div/>
-            </div>
-
-            {/* Fee Sections A–H */}
             {SECTIONS_FEE.map(sec => {
               const secFees = fees.filter(f => f.section === sec.id);
               const secTotal = secFees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
               return (
-                <div key={sec.id} style={{marginBottom:0}}>
+                <div key={sec.id}>
                   {/* Section header */}
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px',background:'#f8fafc',border:'1px solid var(--border)',borderTop:'none',fontSize:13,fontWeight:700,color:'var(--text)'}}>
-                    <div style={{display:'flex',alignItems:'center',gap:10}}>
-                      <span>{sec.label}</span>
+                  <div style={{display:'flex',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)',borderTop:'1px solid var(--border)',marginTop:10,background:'#fff'}}>
+                    <div style={{width:40,display:'flex',justifyContent:'center'}}>
+                      <span style={{width:16,height:16,border:'1px solid #cbd5e1',borderRadius:2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--text-3)',cursor:'pointer'}}>−</span>
+                    </div>
+                    <div style={{flex:1,display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{fontSize:12,fontWeight:700,color:'var(--text)',textTransform:'uppercase',letterSpacing:'.04em'}}>{sec.label}</span>
                       <button onClick={()=>addFee(sec.id)}
-                        style={{display:'flex',alignItems:'center',gap:3,fontSize:12,color:'var(--accent)',background:'var(--accent-light)',border:'1px solid #bfdbfe',borderRadius:5,cursor:'pointer',fontWeight:600,padding:'2px 8px'}}>
+                        style={{fontSize:11,color:'var(--accent)',background:'var(--accent-light)',border:'1px solid #bfdbfe',borderRadius:4,padding:'1px 8px',cursor:'pointer',fontWeight:600}}>
                         + Fee
                       </button>
                     </div>
-                    <span style={{color:'var(--accent)',fontWeight:700}}>{secTotal>0?'$'+secTotal.toFixed(2):''}</span>
+                    <div style={{width:130,textAlign:'right',paddingRight:8,fontSize:13,fontWeight:700,
+                      textDecorationLine:secTotal>0?'underline':'none',textDecorationStyle:'dotted',color:'var(--text)'}}>
+                      {secTotal>0?'$'+secTotal.toFixed(2):''}
+                    </div>
+                    <div style={{width:130}}/>
+                    <div style={{width:80}}/>
+                    <div style={{width:36}}/>
                   </div>
 
-                  {/* Fee lines */}
+                  {/* Fee rows */}
                   {secFees.map(fee => (
-                    <div key={fee.id} className="fees-row-grid" style={{display:'grid',gridTemplateColumns:'1fr 130px 130px 100px 60px 40px',gap:8,padding:'7px 16px',border:'1px solid var(--border)',borderTop:'none',alignItems:'center',background:'#fff'}}>
-                      {/* Description */}
-                      <div style={{display:'flex',alignItems:'center',gap:6}}>
-                        {fee.is_apr ? <span style={{fontSize:10,background:'#dbeafe',color:'#1d4ed8',padding:'1px 5px',borderRadius:3,fontWeight:700,flexShrink:0}}>APR</span> : <span style={{width:28}}/>}
-                        <input value={fee.description||''} onChange={e=>updateFeeLocal(fee.id,'description',e.target.value)}
+                    <div key={fee.id} style={{display:'flex',alignItems:'center',borderBottom:'1px solid var(--border-light)',minHeight:36,background:'#fff'}}
+                      onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'}
+                      onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
+
+                      {/* APR — small pill like ARIVE */}
+                      <div style={{width:40,display:'flex',justifyContent:'center',flexShrink:0}}>
+                        <span onClick={()=>{ const v=fee.is_apr?0:1; updateFeeLocal(fee.id,'is_apr',v); updateFeeDB({...fee,is_apr:v}); }}
+                          style={{fontSize:9,padding:'2px 5px',borderRadius:3,fontWeight:700,cursor:'pointer',lineHeight:1.4,
+                            background:fee.is_apr?'#dbeafe':'transparent',
+                            color:fee.is_apr?'#1d4ed8':'#cbd5e1',
+                            border:`1px solid ${fee.is_apr?'#93c5fd':'transparent'}`}}>
+                          APR
+                        </span>
+                      </div>
+
+                      {/* Description — always visible, inline editable */}
+                      <div style={{flex:1,display:'flex',alignItems:'center',gap:6,paddingRight:8,minWidth:0}}>
+                        <input value={fee.description||''}
+                          onChange={e=>updateFeeLocal(fee.id,'description',e.target.value)}
                           onBlur={()=>updateFeeDB(fee)}
-                          placeholder="Fee description..."
-                          style={{flex:1,border:'none',outline:'none',fontSize:14,color:'var(--text)',background:'transparent'}}/>
-                        {fee.months != null && fee.months > 0 &&
-                          <span style={{fontSize:11,color:'var(--accent)',whiteSpace:'nowrap',cursor:'pointer',textDecoration:'underline',flexShrink:0}}>
-                            {fee.months} months
+                          style={{flex:1,border:'none',outline:'none',fontSize:14,color:'var(--text)',background:'transparent',minWidth:0,fontWeight:400}}/>
+                        {/* Months — blue dotted underline link like ARIVE */}
+                        {fee.months != null && (
+                          <span style={{fontSize:11,color:'#2563EB',whiteSpace:'nowrap',cursor:'pointer',
+                            borderBottom:'1px dotted #2563EB',flexShrink:0,lineHeight:1.6}}>
+                            {fee.months>0?`${fee.months} months`:'0 months'}
                           </span>
+                        )}
+                      </div>
+
+                      {/* At Closing — shows value, click anywhere to edit */}
+                      <div style={{width:130,textAlign:'right',paddingRight:8,flexShrink:0}}>
+                        {fee._editAt
+                          ? <input type="number" autoFocus
+                              value={fee.at_closing!=null?fee.at_closing:''}
+                              onChange={e=>updateFeeLocal(fee.id,'at_closing',e.target.value)}
+                              onBlur={()=>{ updateFeeDB({...fee}); updateFeeLocal(fee.id,'_editAt',false); }}
+                              onKeyDown={e=>e.key==='Enter'&&e.target.blur()}
+                              style={{width:110,textAlign:'right',border:'none',borderBottom:'2px solid var(--accent)',
+                                outline:'none',fontSize:13,background:'transparent',color:'var(--text)'}}/>
+                          : <span onClick={()=>updateFeeLocal(fee.id,'_editAt',true)}
+                              style={{fontSize:13,cursor:'text',display:'inline-block',minWidth:60,
+                                color:parseFloat(fee.at_closing)<0?'#b91c1c':'var(--text)',
+                                fontWeight:parseFloat(fee.at_closing)!==0?500:400}}>
+                              {parseFloat(fee.at_closing)!==0
+                                ? (parseFloat(fee.at_closing)<0?'−':'')+'$'+Math.abs(parseFloat(fee.at_closing||0)).toFixed(2)
+                                : <span style={{color:'#d1d5db',fontSize:11}}>|</span>}
+                            </span>
                         }
                       </div>
-                      {/* At Closing */}
-                      <div style={{position:'relative'}}>
-                        <span style={{position:'absolute',left:6,top:'50%',transform:'translateY(-50%)',color:'var(--text-3)',fontSize:13}}>$</span>
-                        <input type="number" value={fee.at_closing||''} onChange={e=>updateFeeLocal(fee.id,'at_closing',e.target.value)}
-                          onBlur={()=>updateFeeDB(fee)}
-                          step="0.01" placeholder="0.00"
-                          style={{width:'100%',padding:'5px 6px 5px 16px',border:'1px solid var(--border)',borderRadius:5,fontSize:13,textAlign:'right'}}/>
-                      </div>
+
                       {/* Before Closing */}
-                      <div style={{position:'relative'}}>
-                        <span style={{position:'absolute',left:6,top:'50%',transform:'translateY(-50%)',color:'var(--text-3)',fontSize:13}}>$</span>
-                        <input type="number" value={fee.before_closing||''} onChange={e=>updateFeeLocal(fee.id,'before_closing',e.target.value)}
-                          onBlur={()=>updateFeeDB(fee)}
-                          step="0.01" placeholder="0.00"
-                          style={{width:'100%',padding:'5px 6px 5px 16px',border:'1px solid var(--border)',borderRadius:5,fontSize:13,textAlign:'right'}}/>
+                      <div style={{width:130,textAlign:'right',paddingRight:8,flexShrink:0}}>
+                        {fee._editBefore
+                          ? <input type="number" autoFocus
+                              value={fee.before_closing!=null?fee.before_closing:''}
+                              onChange={e=>updateFeeLocal(fee.id,'before_closing',e.target.value)}
+                              onBlur={()=>{ updateFeeDB({...fee}); updateFeeLocal(fee.id,'_editBefore',false); }}
+                              onKeyDown={e=>e.key==='Enter'&&e.target.blur()}
+                              style={{width:110,textAlign:'right',border:'none',borderBottom:'2px solid var(--accent)',
+                                outline:'none',fontSize:13,background:'transparent'}}/>
+                          : <span onClick={()=>updateFeeLocal(fee.id,'_editBefore',true)}
+                              style={{fontSize:13,cursor:'text',display:'inline-block',minWidth:60,color:'var(--text)'}}>
+                              {parseFloat(fee.before_closing)!==0&&fee.before_closing
+                                ? '$'+Math.abs(parseFloat(fee.before_closing)).toFixed(2)
+                                : <span style={{color:'#d1d5db',fontSize:11}}>|</span>}
+                            </span>
+                        }
                       </div>
-                      {/* Paid By */}
-                      <div style={{display:'flex',gap:4,justifyContent:'center'}}>
+
+                      {/* Paid By B/S/L */}
+                      <div style={{width:80,display:'flex',gap:3,justifyContent:'center',flexShrink:0}}>
                         {['B','S','L'].map(pb=>(
                           <button key={pb} onClick={()=>{ updateFeeLocal(fee.id,'paid_by',pb); updateFeeDB({...fee,paid_by:pb}); }}
-                            style={{width:26,height:26,borderRadius:4,border:`1px solid ${fee.paid_by===pb?'var(--accent)':'var(--border)'}`,
-                              background:fee.paid_by===pb?'var(--accent)':'#fff',
-                              color:fee.paid_by===pb?'#fff':'var(--text-3)',
-                              fontSize:11,fontWeight:700,cursor:'pointer'}}>
+                            style={{width:20,height:20,borderRadius:3,
+                              border:`1px solid ${fee.paid_by===pb?'#1d4ed8':'#e2e8f0'}`,
+                              background:fee.paid_by===pb?'#1d4ed8':'#fff',
+                              color:fee.paid_by===pb?'#fff':'#94a3b8',
+                              fontSize:10,fontWeight:700,cursor:'pointer',lineHeight:1,flexShrink:0}}>
                             {pb}
                           </button>
                         ))}
                       </div>
-                      {/* APR toggle */}
-                      <div style={{display:'flex',justifyContent:'center'}}>
-                        <button onClick={()=>{ const v=fee.is_apr?0:1; updateFeeLocal(fee.id,'is_apr',v); updateFeeDB({...fee,is_apr:v}); }}
-                          style={{width:32,height:20,borderRadius:10,border:'none',cursor:'pointer',
-                            background:fee.is_apr?'var(--accent)':'#d1d5db',transition:'background .2s',position:'relative'}}>
-                          <span style={{position:'absolute',top:2,left:fee.is_apr?14:2,width:16,height:16,borderRadius:'50%',background:'#fff',transition:'left .2s'}}/>
+
+                      {/* Delete */}
+                      <div style={{width:36,display:'flex',justifyContent:'center',flexShrink:0}}>
+                        <button onClick={()=>deleteFee(fee.id)}
+                          style={{background:'none',border:'none',color:'#d1d5db',cursor:'pointer',fontSize:13,padding:4,lineHeight:1}}
+                          onMouseEnter={e=>e.currentTarget.style.color='#ef4444'}
+                          onMouseLeave={e=>e.currentTarget.style.color='#d1d5db'}>
+                          🗑
                         </button>
                       </div>
-                      {/* Delete */}
-                      <button onClick={()=>deleteFee(fee.id)}
-                        style={{width:28,height:28,borderRadius:4,border:'none',background:'none',color:'#ef4444',cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                        ✕
-                      </button>
                     </div>
                   ))}
-
                 </div>
               );
             })}
 
-            {/* ── Calculating Cash to Close ── */}
+            {/* Calculating Cash to Close */}
             {(()=>{
               const totalClosingCosts = fees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
-              const baseLoan = parseFloat(formData.baseLoan)||0;
-              const appraisedVal = parseFloat(formData.appraisedVal)||0;
+              const baseLoan    = parseFloat(formData.baseLoan)||0;
+              const appraisedVal= parseFloat(formData.appraisedVal)||0;
               const downPayment = appraisedVal > baseLoan ? appraisedVal - baseLoan : 0;
-              const cashFromBorrower = totalClosingCosts + downPayment;
+              const earnest        = parseFloat(formData.earnest_money_deposit)||0;
+              const sellerCredits  = parseFloat(formData.seller_credits)||0;
+              const fundsForBorr   = parseFloat(formData.funds_for_borrower)||0;
+              const closingFin     = parseFloat(formData.closing_costs_financed)||0;
+              const adjustments    = parseFloat(formData.adjustments_other_credits)||0;
+              const cashFromBorrower = totalClosingCosts + downPayment - earnest - sellerCredits - fundsForBorr - closingFin - adjustments;
+
+              const EditableAmt = ({field, negate}) => (
+                <div style={{display:'flex',alignItems:'center',gap:2}}>
+                  {negate && parseFloat(formData[field])>0 && <span style={{color:'#b91c1c',fontSize:14}}>−</span>}
+                  <span style={{fontSize:14,color:'var(--text-3)',marginRight:2}}>$</span>
+                  <input type="number" value={formData[field]||''} placeholder="0.00" step="0.01"
+                    onChange={e=>setFormData(p=>({...p,[field]:e.target.value}))}
+                    onBlur={()=>autoSave()}
+                    style={{width:90,textAlign:'right',border:'none',borderBottom:'1px dashed #cbd5e1',
+                      outline:'none',fontSize:14,fontWeight:500,background:'transparent',
+                      color:negate&&parseFloat(formData[field])>0?'#b91c1c':'var(--text)'}}/>
+                </div>
+              );
+
               return (
-                <div style={{marginTop:28,border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                <div style={{marginTop:28,border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',marginBottom:90}}>
                   <div style={{padding:'14px 20px',background:'var(--cream)',borderBottom:'1px solid var(--border)',fontSize:16,fontWeight:700,color:'var(--text)'}}>
                     Calculating Cash to Close
                   </div>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                    <span style={{color:'var(--text-2)'}}>Total Closing Costs</span>
+                    <span style={{fontWeight:600}}>${totalClosingCosts.toFixed(2)}</span>
+                  </div>
                   {[
-                    ['Total Closing Costs',                    '$'+totalClosingCosts.toFixed(2),  false],
-                    ['Closing Costs Financed (Paid from your loan amount)', '$0.00',              false],
-                    ['Down Payment / Funds from Borrower',    '$'+downPayment.toFixed(2),         false],
-                    ['Earnest Money Deposit',                  '--',                              false],
-                    ['Funds for Borrower',                     '$0.00',                           false],
-                    ['Seller Credits',                         '--',                              false],
-                    ['Adjustments and Other Credits',          '$0.00',                           false],
-                  ].map(([lbl,val,bold])=>(
-                    <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'11px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
-                      <span style={{color:bold?'var(--text)':'var(--text-2)',fontWeight:bold?700:400}}>{lbl}</span>
-                      <span style={{fontWeight:bold?700:500,color:'var(--text)'}}>{val}</span>
+                    ['Closing Costs Financed (Paid from your loan amount)','closing_costs_financed',false],
+                    ['Earnest Money Deposit','earnest_money_deposit',true],
+                    ['Funds for Borrower','funds_for_borrower',false],
+                    ['Seller Credits','seller_credits',true],
+                    ['Adjustments and Other Credits','adjustments_other_credits',false],
+                  ].map(([lbl,field,negate])=>(
+                    <div key={field} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                      <span style={{color:'var(--text-2)'}}>{lbl}</span>
+                      <EditableAmt field={field} negate={negate}/>
                     </div>
                   ))}
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                    <span style={{color:'var(--text-2)'}}>Down Payment / Funds from Borrower</span>
+                    <span style={{fontWeight:500}}>${downPayment.toFixed(2)}</span>
+                  </div>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',background:'var(--cream)'}}>
                     <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>Cash from Borrower</span>
-                    <span style={{fontSize:18,fontWeight:700,color:'var(--accent)'}}>{'$'+cashFromBorrower.toFixed(2)}</span>
+                    <span style={{fontSize:18,fontWeight:700,color:cashFromBorrower<0?'#15803d':'var(--accent)'}}>
+                      {cashFromBorrower<0?'−':''}${Math.abs(cashFromBorrower).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               );
             })()}
           </>}
+
+          {/* Sticky Cash from Borrower bar — ARIVE style */}
+          {!feesLoading && (()=>{
+            const totalClosingCosts = fees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
+            const baseLoan    = parseFloat(formData.baseLoan)||0;
+            const appraisedVal= parseFloat(formData.appraisedVal)||0;
+            const downPayment = appraisedVal > baseLoan ? appraisedVal - baseLoan : 0;
+            const earnest     = parseFloat(formData.earnest_money_deposit)||0;
+            const seller      = parseFloat(formData.seller_credits)||0;
+            const cashFromBorrower = totalClosingCosts + downPayment - earnest - seller;
+            return (
+              <div style={{position:'fixed',bottom:64,right:20,
+                background:'rgba(15,22,35,.96)',color:'#fff',
+                padding:'10px 18px',borderRadius:10,fontSize:14,
+                boxShadow:'0 4px 24px rgba(0,0,0,.35)',zIndex:60,
+                display:'flex',alignItems:'center',gap:12,
+                border:'1px solid rgba(255,255,255,.08)'}}>
+                <span style={{color:'#94a3b8',fontSize:13}}>Cash from Borrower :</span>
+                <span style={{color:'#60a5fa',fontSize:16,fontWeight:700}}>
+                  {cashFromBorrower<0?'−':''}${Math.abs(cashFromBorrower).toFixed(2)}
+                </span>
+                <button style={{background:'rgba(37,99,235,.25)',border:'1px solid #3b82f6',
+                  color:'#93c5fd',borderRadius:6,padding:'3px 10px',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                  👁 IFW
+                </button>
+              </div>
+            );
+          })()}
         </>}
 
         </>}
@@ -2639,10 +2772,7 @@ const DEFAULT_FEES = [
 async function seedDefaultFees(loanId) {
   try {
     for (const fee of DEFAULT_FEES) {
-      await apiFetch('/api/fees', {
-        method: 'POST',
-        body: { loan_id: loanId, ...fee, before_closing: 0 }
-      }).catch(()=>{});
+      await db.fees.insert({ loan_id: loanId, ...fee, before_closing: fee.before_closing || 0 }).catch(()=>{});
     }
   } catch {}
 }
