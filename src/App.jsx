@@ -2494,8 +2494,9 @@ function Form1003({ loan, onBack, showToast }) {
                       </button>
                     </div>
                     <div style={{width:130,textAlign:'right',paddingRight:8,fontSize:13,fontWeight:700,
-                      textDecorationLine:secTotal>0?'underline':'none',textDecorationStyle:'dotted',color:'var(--text)'}}>
-                      {secTotal>0?'$'+secTotal.toFixed(2):''}
+                      textDecorationLine:secTotal>0?'underline':'none',textDecorationStyle:'dotted',
+                      color:secTotal>0?'var(--text)':'#b0b7c3'}}>
+                      {secTotal>0?'$'+secTotal.toFixed(2):'$0.00'}
                     </div>
                     <div style={{width:130}}/>
                     <div style={{width:80}}/>
@@ -2546,11 +2547,11 @@ function Form1003({ loan, onBack, showToast }) {
                                 outline:'none',fontSize:13,background:'transparent',color:'var(--text)'}}/>
                           : <span onClick={()=>updateFeeLocal(fee.id,'_editAt',true)}
                               style={{fontSize:13,cursor:'text',display:'inline-block',minWidth:60,
-                                color:parseFloat(fee.at_closing)<0?'#b91c1c':'var(--text)',
-                                fontWeight:parseFloat(fee.at_closing)!==0?500:400}}>
-                              {parseFloat(fee.at_closing)!==0
+                                color:parseFloat(fee.at_closing)<0?'#b91c1c':(parseFloat(fee.at_closing)?'var(--text)':'#b0b7c3'),
+                                fontWeight:parseFloat(fee.at_closing)?500:400}}>
+                              {parseFloat(fee.at_closing)
                                 ? (parseFloat(fee.at_closing)<0?'−':'')+'$'+Math.abs(parseFloat(fee.at_closing||0)).toFixed(2)
-                                : <span style={{color:'#d1d5db',fontSize:11}}>|</span>}
+                                : '$0.00'}
                             </span>
                         }
                       </div>
@@ -2566,10 +2567,12 @@ function Form1003({ loan, onBack, showToast }) {
                               style={{width:110,textAlign:'right',border:'none',borderBottom:'2px solid var(--accent)',
                                 outline:'none',fontSize:13,background:'transparent'}}/>
                           : <span onClick={()=>updateFeeLocal(fee.id,'_editBefore',true)}
-                              style={{fontSize:13,cursor:'text',display:'inline-block',minWidth:60,color:'var(--text)'}}>
-                              {parseFloat(fee.before_closing)!==0&&fee.before_closing
+                              style={{fontSize:13,cursor:'text',display:'inline-block',minWidth:60,
+                                color:parseFloat(fee.before_closing)?'var(--text)':'#b0b7c3',
+                                fontWeight:parseFloat(fee.before_closing)?500:400}}>
+                              {parseFloat(fee.before_closing)
                                 ? '$'+Math.abs(parseFloat(fee.before_closing)).toFixed(2)
-                                : <span style={{color:'#d1d5db',fontSize:11}}>|</span>}
+                                : '$0.00'}
                             </span>
                         }
                       </div>
@@ -2728,45 +2731,45 @@ function Form1003({ loan, onBack, showToast }) {
 const DEFAULT_FEES = [
   // A — Origination Charges
   { section:'A', description:'__% of Loan Amount (Points)',              at_closing:0,    before_closing:0, paid_by:'B', is_apr:1, sort_order:1 },
-  { section:'A', description:'Underwriting Fee',                         at_closing:1250, before_closing:0, paid_by:'B', is_apr:1, sort_order:2 },
+  { section:'A', description:'Underwriting Fee',                         at_closing:0, before_closing:0, paid_by:'B', is_apr:1, sort_order:2 },
   { section:'A', description:'Lender Credit',                            at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:3 },
   // B — Services Borrower Cannot Shop For
-  { section:'B', description:'Appraisal Fee',                            at_closing:750,  before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
-  { section:'B', description:'Credit Report Fee',                        at_closing:108,  before_closing:0, paid_by:'B', is_apr:0, sort_order:2 },
-  { section:'B', description:'Flood Certificate Fee',                    at_closing:8,    before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
-  { section:'B', description:'MERS Registration Fee',                    at_closing:24.95,before_closing:0, paid_by:'B', is_apr:1, sort_order:4 },
-  { section:'B', description:'Tax Service Fee',                          at_closing:85,   before_closing:0, paid_by:'B', is_apr:1, sort_order:5 },
+  { section:'B', description:'Appraisal Fee',                            at_closing:0,  before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
+  { section:'B', description:'Credit Report Fee',                        at_closing:0,  before_closing:0, paid_by:'B', is_apr:0, sort_order:2 },
+  { section:'B', description:'Flood Certificate Fee',                    at_closing:0,    before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
+  { section:'B', description:'MERS Registration Fee',                    at_closing:0,before_closing:0, paid_by:'B', is_apr:1, sort_order:4 },
+  { section:'B', description:'Tax Service Fee',                          at_closing:0,   before_closing:0, paid_by:'B', is_apr:1, sort_order:5 },
   // C — Services Borrower Can Shop For
-  { section:'C', description:'Title - Admin Processing Fee',             at_closing:175,  before_closing:0, paid_by:'B', is_apr:1, sort_order:1 },
-  { section:'C', description:'Title - Courier/Wire/E-Mail Fee',          at_closing:75,   before_closing:0, paid_by:'B', is_apr:1, sort_order:2 },
-  { section:'C', description:'Title - Deed Preparation Fee',             at_closing:150,  before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
-  { section:'C', description:'Title - Insurance Binder',                 at_closing:700,  before_closing:0, paid_by:'B', is_apr:0, sort_order:4 },
-  { section:'C', description:"Title - Lender's Closing Protection Letter", at_closing:50, before_closing:0, paid_by:'B', is_apr:1, sort_order:5 },
-  { section:'C', description:"Title - Lender's Title Insurance",         at_closing:1873, before_closing:0, paid_by:'B', is_apr:1, sort_order:6 },
-  { section:'C', description:'Title - Title Search',                     at_closing:500,  before_closing:0, paid_by:'B', is_apr:0, sort_order:7 },
+  { section:'C', description:'Title - Admin Processing Fee',             at_closing:0,  before_closing:0, paid_by:'B', is_apr:1, sort_order:1 },
+  { section:'C', description:'Title - Courier/Wire/E-Mail Fee',          at_closing:0,   before_closing:0, paid_by:'B', is_apr:1, sort_order:2 },
+  { section:'C', description:'Title - Deed Preparation Fee',             at_closing:0,  before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
+  { section:'C', description:'Title - Insurance Binder',                 at_closing:0,  before_closing:0, paid_by:'B', is_apr:0, sort_order:4 },
+  { section:'C', description:"Title - Lender's Closing Protection Letter", at_closing:0, before_closing:0, paid_by:'B', is_apr:1, sort_order:5 },
+  { section:'C', description:"Title - Lender's Title Insurance",         at_closing:0, before_closing:0, paid_by:'B', is_apr:1, sort_order:6 },
+  { section:'C', description:'Title - Title Search',                     at_closing:0,  before_closing:0, paid_by:'B', is_apr:0, sort_order:7 },
   // D — Reserved (empty by default, matches ARIVE)
   // E — Taxes and Other Government Fees
   { section:'E', description:'Transfer Taxes',                           at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
   { section:'E', description:'Transfer Tax Total',                       at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:2 },
-  { section:'E', description:'Recording Fees - Deed',                    at_closing:25,   before_closing:0, paid_by:'B', is_apr:0, sort_order:3 },
-  { section:'E', description:'Recording Fees - Mortgage',                at_closing:25,   before_closing:0, paid_by:'B', is_apr:0, sort_order:4 },
-  { section:'E', description:'Recording Fees - Other',                   at_closing:10,   before_closing:0, paid_by:'B', is_apr:0, sort_order:5 },
-  { section:'E', description:'State Tax/Stamps - Deed',                  at_closing:580,  before_closing:0, paid_by:'B', is_apr:0, sort_order:6 },
-  { section:'E', description:'State Tax/Stamps - Mortgage',              at_closing:1653, before_closing:0, paid_by:'B', is_apr:0, sort_order:7 },
+  { section:'E', description:'Recording Fees - Deed',                    at_closing:0,   before_closing:0, paid_by:'B', is_apr:0, sort_order:3 },
+  { section:'E', description:'Recording Fees - Mortgage',                at_closing:0,   before_closing:0, paid_by:'B', is_apr:0, sort_order:4 },
+  { section:'E', description:'Recording Fees - Other',                   at_closing:0,   before_closing:0, paid_by:'B', is_apr:0, sort_order:5 },
+  { section:'E', description:'State Tax/Stamps - Deed',                  at_closing:0,  before_closing:0, paid_by:'B', is_apr:0, sort_order:6 },
+  { section:'E', description:'State Tax/Stamps - Mortgage',              at_closing:0, before_closing:0, paid_by:'B', is_apr:0, sort_order:7 },
   // F — Prepaids
-  { section:'F', description:'Hazard Insurance Premium',                 at_closing:1740, before_closing:0, paid_by:'B', is_apr:0, sort_order:1, months:12 },
+  { section:'F', description:'Hazard Insurance Premium',                 at_closing:0, before_closing:0, paid_by:'B', is_apr:0, sort_order:1, months:12 },
   { section:'F', description:'Mortgage Insurance Premium',               at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:2, months:0  },
   { section:'F', description:'Prepaid Interest',                         at_closing:0,    before_closing:0, paid_by:'B', is_apr:1, sort_order:3 },
   { section:'F', description:'Property Taxes',                           at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:4, months:0  },
   { section:'F', description:'Supplemental Property Insurance Premium',  at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:5, months:0  },
   // G — Initial Escrow Payment at Closing
-  { section:'G', description:'Hazard Insurance Reserve',                 at_closing:435,  before_closing:0, paid_by:'B', is_apr:0, sort_order:1, months:3  },
+  { section:'G', description:'Hazard Insurance Reserve',                 at_closing:0,  before_closing:0, paid_by:'B', is_apr:0, sort_order:1, months:3  },
   { section:'G', description:'Mortgage Insurance Reserve',               at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:2, months:0  },
-  { section:'G', description:'Property Taxes',                           at_closing:3519.20, before_closing:0, paid_by:'B', is_apr:0, sort_order:3, months:10 },
+  { section:'G', description:'Property Taxes',                           at_closing:0, before_closing:0, paid_by:'B', is_apr:0, sort_order:3, months:10 },
   { section:'G', description:'Supplemental Property Insurance Reserve',  at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:4, months:0  },
   { section:'G', description:'Aggregate Adjustment',                     at_closing:0,    before_closing:0, paid_by:'B', is_apr:0, sort_order:5 },
   // H — Other
-  { section:'H', description:"Title - Owner's Title Insurance (Optional)", at_closing:1182, before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
+  { section:'H', description:"Title - Owner's Title Insurance (Optional)", at_closing:0, before_closing:0, paid_by:'B', is_apr:0, sort_order:1 },
 ];
 
 async function seedDefaultFees(loanId) {
