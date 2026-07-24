@@ -1722,6 +1722,31 @@ function Form1003({ loan, onBack, showToast }) {
       .finally(() => setLoading(false));
   }, [loan.id]);
 
+  // ── DTI CALCULATION — live from Income, PITI, Liabilities ───────
+  const calcDTI = () => {
+    const income = (formData.incomes||[]).reduce((a,x)=>
+      a+['base','overtime','bonuses','commission','tips','seasonal','otherW2']
+        .reduce((b,k)=>b+(parseFloat(x[k])||0),0),0);
+    const p = parseFloat(formData.baseLoan)||0;
+    const r = (parseFloat(formData.rate)||0)/100/12;
+    const n = parseInt(formData.amortTerm||360);
+    const pi = r ? (p*(r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1)) : 0;
+    const housing = pi
+      +(parseFloat(formData.pmt_hoi)||0)
+      +(parseFloat(formData.pmt_property_taxes)||0)
+      +(parseFloat(formData.pmt_mi)||0)
+      +(parseFloat(formData.pmt_supplemental)||0)
+      +(parseFloat(formData.pmt_association_dues)||0)
+      +(parseFloat(formData.pmt_other)||0);
+    const otherDebts = (formData.liabilities||[]).filter(l=>l.dti==='Include')
+      .reduce((a,x)=>a+(parseFloat(x.payment)||0),0);
+    const front = income>0 ? (housing/income)*100 : 0;
+    const back  = income>0 ? ((housing+otherDebts)/income)*100 : 0;
+    return { income, housing, otherDebts, front, back, pi };
+  };
+  const dtiColor = (v) => v<=0 ? '#94a3b8' : v<=36 ? '#22c55e' : v<=43 ? '#f97316' : '#ef4444';
+  const [showDti, setShowDti] = useState(false);
+
   const handleSave = async () => {
     try {
       const b = borrowers[0];
@@ -1761,6 +1786,8 @@ function Form1003({ loan, onBack, showToast }) {
           funds_for_borrower:        parseFloat(formData.funds_for_borrower)||null,
           closing_costs_financed:    parseFloat(formData.closing_costs_financed)||null,
           adjustments_other_credits: parseFloat(formData.adjustments_other_credits)||null,
+          dti_front:                 parseFloat(calcDTI().front.toFixed(2))||null,
+          dti_back:                  parseFloat(calcDTI().back.toFixed(2))||null,
         });
       }
 
@@ -1863,6 +1890,8 @@ function Form1003({ loan, onBack, showToast }) {
           funds_for_borrower:        parseFloat(formData.funds_for_borrower)||null,
           closing_costs_financed:    parseFloat(formData.closing_costs_financed)||null,
           adjustments_other_credits: parseFloat(formData.adjustments_other_credits)||null,
+          dti_front:                 parseFloat(calcDTI().front.toFixed(2))||null,
+          dti_back:                  parseFloat(calcDTI().back.toFixed(2))||null,
         }).catch(()=>{});
 
         // Update 1003 table
@@ -1989,6 +2018,95 @@ function Form1003({ loan, onBack, showToast }) {
           <div className="f1003-loan-name">📋 {borrowers[0]?.firstName && borrowers[0]?.lastName ? `${borrowers[0].firstName} ${borrowers[0].lastName}` : loan.borrower || 'New Application'}</div>
           <div className="f1003-loan-meta">Loan #{loan.loan_number} · {loan.subject_property} · {loan.loan_status}</div>
         </div>
+
+        {/* ── ARIVE-style stats strip ── */}
+        {(()=>{
+          const d = calcDTI();
+          const ltv = formData.appraisedVal && formData.baseLoan
+            ? ((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(2)+'%' : '--';
+          return (
+            <div style={{display:'flex',alignItems:'center',gap:22,flex:1,justifyContent:'center'}}>
+              <div style={{textAlign:'left'}}>
+                <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>Loan Amount · LTV</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>
+                  {formData.baseLoan?'$'+parseFloat(formData.baseLoan).toLocaleString(undefined,{minimumFractionDigits:2}):'--'} · {ltv}
+                </div>
+              </div>
+              <div style={{textAlign:'left'}}>
+                <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>Score</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>{formData.creditScore||'--'}</div>
+              </div>
+              <div style={{textAlign:'left'}}>
+                <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>Rate</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>{formData.rate?formData.rate+'%':'--'}</div>
+              </div>
+              {/* DTI — click to expand breakdown */}
+              <div style={{textAlign:'left',position:'relative',cursor:'pointer'}} onClick={()=>setShowDti(s=>!s)}>
+                <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>DTI</div>
+                <div style={{fontSize:13,fontWeight:700,display:'flex',alignItems:'center',gap:3}}>
+                  <span style={{color:dtiColor(d.front)}}>{d.front>0?d.front.toFixed(2)+'%':'--'}</span>
+                  <span style={{color:'rgba(255,255,255,.5)'}}>/</span>
+                  <span style={{color:dtiColor(d.back)}}>{d.back>0?d.back.toFixed(2)+'%':'--'}</span>
+                  <span style={{color:'rgba(255,255,255,.5)',fontSize:10,marginLeft:2}}>▾</span>
+                </div>
+
+                {/* ── DTI Breakdown popover — like ARIVE ── */}
+                {showDti && (
+                  <div onClick={e=>e.stopPropagation()}
+                    style={{position:'absolute',top:'calc(100% + 10px)',left:'50%',transform:'translateX(-50%)',
+                      width:340,background:'#fff',borderRadius:10,boxShadow:'0 10px 40px rgba(0,0,0,.25)',
+                      zIndex:100,color:'var(--text)',cursor:'default',overflow:'hidden'}}>
+                    <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span style={{fontSize:14,fontWeight:700}}>DTI Ratio</span>
+                      <span style={{fontSize:14,fontWeight:700}}>
+                        <span style={{color:dtiColor(d.front)}}>{d.front.toFixed(2)}%</span>
+                        <span style={{color:'var(--text-3)'}}> / </span>
+                        <span style={{color:dtiColor(d.back)}}>{d.back.toFixed(2)}%</span>
+                      </span>
+                    </div>
+                    {/* Income */}
+                    <div style={{padding:'10px 16px 4px',fontSize:11,fontWeight:700,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em'}}>Income</div>
+                    <div style={{padding:'0 16px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13,borderBottom:'1px solid var(--border-light)'}}>
+                        <span style={{color:'var(--text-2)'}}>Monthly Income</span>
+                        <span style={{fontWeight:500}}>${d.income.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13,fontWeight:700}}>
+                        <span>Total Monthly Income</span>
+                        <span>${d.income.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                    </div>
+                    {/* Debt */}
+                    <div style={{padding:'10px 16px 4px',fontSize:11,fontWeight:700,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em'}}>Debt</div>
+                    <div style={{padding:'0 16px 12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13,borderBottom:'1px solid var(--border-light)'}}>
+                        <span style={{color:'var(--text-2)'}}>Qualifying Housing Payment</span>
+                        <span style={{fontWeight:500}}>${d.housing.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13,borderBottom:'1px solid var(--border-light)'}}>
+                        <span style={{color:'var(--text-2)'}}>All Other Payments</span>
+                        <span style={{fontWeight:500}}>${d.otherDebts.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13,fontWeight:700,borderBottom:'1px solid var(--border-light)'}}>
+                        <span>Total Expense Payments</span>
+                        <span>${(d.housing+d.otherDebts).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13,borderBottom:'1px solid var(--border-light)'}}>
+                        <span style={{color:'var(--text-2)'}}>Present/Principal Housing Payment</span>
+                        <span style={{fontWeight:500}}>$0.00</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:13}}>
+                        <span style={{color:'var(--text-2)'}}>Proposed Housing Payment</span>
+                        <span style={{fontWeight:500}}>${d.housing.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {saving && <span style={{fontSize:12,color:'rgba(255,255,255,.6)',display:'flex',alignItems:'center',gap:4}}>⏳ Saving...</span>}
           <button className="btn btn-sm" style={{background:'rgba(255,255,255,.15)',color:'#fff',border:'1px solid rgba(255,255,255,.3)'}} onClick={handleSave}>💾 Save</button>
