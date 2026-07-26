@@ -1697,25 +1697,44 @@ function Form1003({ loan, onBack, showToast }) {
             presentYears:  existing.current_how_long_addr || '',
             presentOwn:    existing.housing         || '',
           }]);
-          setFormData(p => ({
-            ...p,
-            rate:        existing.rate || p.rate || '',
-            spAddr1:     existing.address_street && !p.spAddr1 ? existing.address_street : p.spAddr1,
-            incomes: existing.employee_or_business_nm ? [{
-              id: Date.now(), borrower:'Borrower', type:'Employment Income',
-              employer:    existing.employee_or_business_nm || '',
-              position:    existing.position_title          || '',
-              startDate:   existing.position_start_date ? existing.position_start_date.split('T')[0] : '',
-              base:        existing.gross_income_monthly_base       || '',
-              overtime:    existing.gross_income_monthly_overtime   || '',
-              bonuses:     existing.gross_income_monthly_bonus      || '',
-              commission:  existing.gross_income_monthly_commission || '',
-              otherW2:     existing.gross_income_monthly_other      || '',
-              currentEmp:true, primary:true, selfEmp:false, familyRelated:false,
-              addr1:'',city:'',state:'',zip:'',country:'United States',
-              phone:'',verPhone:'',verEmail:'',endDate:'',tips:'',seasonal:'',
-            }] : p.incomes,
-          }));
+          setFormData(p => {
+            // ── Restore full financial arrays from JSON (primary source) ──
+            const parseArr = (raw) => {
+              try { const v = JSON.parse(raw); return Array.isArray(v) ? v : null; } catch { return null; }
+            };
+            let incomes     = existing.incomes_json     ? parseArr(existing.incomes_json)     : null;
+            let assets      = existing.assets_json      ? parseArr(existing.assets_json)      : null;
+            let liabilities = existing.liabilities_json ? parseArr(existing.liabilities_json) : null;
+            let reos        = existing.reos_json        ? parseArr(existing.reos_json)        : null;
+
+            // Fallback: rebuild income entry #1 from legacy columns if any income data exists
+            if (!incomes && (existing.employee_or_business_nm || parseFloat(existing.gross_income_monthly_base) > 0)) {
+              incomes = [{
+                id: Date.now(), borrower:'Borrower', type:'Employment Income',
+                employer:    existing.employee_or_business_nm || '',
+                position:    existing.position_title          || '',
+                startDate:   existing.position_start_date ? existing.position_start_date.split('T')[0] : '',
+                base:        existing.gross_income_monthly_base       || '',
+                overtime:    existing.gross_income_monthly_overtime   || '',
+                bonuses:     existing.gross_income_monthly_bonus      || '',
+                commission:  existing.gross_income_monthly_commission || '',
+                otherW2:     existing.gross_income_monthly_other      || '',
+                currentEmp:true, primary:true, selfEmp:false, familyRelated:false,
+                addr1:'',city:'',state:'',zip:'',country:'United States',
+                phone:'',verPhone:'',verEmail:'',endDate:'',tips:'',seasonal:'',
+              }];
+            }
+
+            return {
+              ...p,
+              rate:        existing.rate || p.rate || '',
+              spAddr1:     existing.address_street && !p.spAddr1 ? existing.address_street : p.spAddr1,
+              incomes:     incomes     || p.incomes,
+              assets:      assets      || p.assets,
+              liabilities: liabilities || p.liabilities,
+              reos:        reos        || p.reos,
+            };
+          });
         }
       })
       .catch(() => {})
@@ -1836,6 +1855,11 @@ function Form1003({ loan, onBack, showToast }) {
         lien_position:        formData.lienPosition || 'First Lien',
         refi_type:            formData.refiType     || null,
         cash_out_purpose:     formData.cashOutPurpose || null,
+        // Full financial arrays — persist ALL entries (incomes, assets, liabilities, REO)
+        incomes_json:         JSON.stringify(formData.incomes     || []),
+        assets_json:          JSON.stringify(formData.assets      || []),
+        liabilities_json:     JSON.stringify(formData.liabilities || []),
+        reos_json:            JSON.stringify(formData.reos        || []),
       };
 
       if (loan.id) {
@@ -1924,6 +1948,10 @@ function Form1003({ loan, onBack, showToast }) {
           lien_position:       formData.lienPosition||'First Lien',
           refi_type:           formData.refiType||null,
           cash_out_purpose:    formData.cashOutPurpose||null,
+          incomes_json:        JSON.stringify(formData.incomes     || []),
+          assets_json:         JSON.stringify(formData.assets      || []),
+          liabilities_json:    JSON.stringify(formData.liabilities || []),
+          reos_json:           JSON.stringify(formData.reos        || []),
         };
         const existing = await db.form1003.getByLoan(loan.id).catch(()=>null);
         if (existing?.id) { await db.form1003.update(existing.id, payload).catch(()=>{}); }
