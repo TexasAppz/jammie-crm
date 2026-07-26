@@ -493,7 +493,8 @@ let _nextLoanId = 9, _nextLeadId = 6, _nextTaskId = 8;
 // API CLIENT — connects React to Express backend
 // Falls back to mock data if API is unreachable (dev mode)
 // ─────────────────────────────────────────────────────────────────
-const API_URL = 'http://localhost:3001';
+// Relative URL — production: nginx proxies /api → Express :3001; local dev: vite proxy does the same
+const API_URL = '';
 
 // Mock DB fallback (used when API is unreachable e.g. local dev without backend)
 // Mock fees store for local dev (auto-seeded per loan on first open)
