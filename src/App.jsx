@@ -549,15 +549,23 @@ const mockDb = {
 };
 
 let _apiAvailable = null; // null=unknown, true=available, false=unavailable
+let _apiCheckedAt = 0;
 
 async function checkApi() {
-  if (_apiAvailable !== null) return _apiAvailable;
+  const now = Date.now();
+  // Trust a successful check indefinitely
+  if (_apiAvailable === true) return true;
+  // Only trust a FAILED check for 3 seconds — then retry.
+  // This prevents one transient failure (e.g. API restarting) from
+  // permanently locking the whole session into mock/offline mode.
+  if (_apiAvailable === false && (now - _apiCheckedAt) < 3000) return false;
   try {
     const res = await fetch(`${API_URL}/api/health`, { signal: AbortSignal.timeout(2000) });
     _apiAvailable = res.ok;
   } catch {
     _apiAvailable = false;
   }
+  _apiCheckedAt = now;
   return _apiAvailable;
 }
 
@@ -1874,7 +1882,14 @@ function Form1003({ loan, onBack, showToast }) {
         await db.form1003.insert(payload);
       }
 
-      showToast(`✓ Saved — ${fullName}`);
+      // Warn clearly if the save silently used offline/mock storage
+      // instead of the real database — prevents data-loss going unnoticed.
+      const apiOk = await checkApi();
+      if (apiOk) {
+        showToast(`✓ Saved — ${fullName}`);
+      } else {
+        showToast(`⚠ Server unreachable — "${fullName}" was NOT saved to the database!`);
+      }
     } catch (err) {
       showToast(`⚠ Save failed: ${err.message}`);
     }
