@@ -1219,12 +1219,16 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
 }
 
 function Section2Employment({ data, setData }) {
-  const addEntry = () => setData(p=>({...p, incomes:[...p.incomes,{id:Date.now(),borrower:'Borrower',type:'Employment Income',employer:'',addr1:'',city:'',state:'',zip:'',country:'United States',phone:'',verPhone:'',verEmail:'',position:'',startDate:'',endDate:'',base:'',overtime:'',bonuses:'',commission:'',tips:'',seasonal:'',otherW2:'',currentEmp:true,primary:false,selfEmp:false,familyRelated:false}]}));
-  const updEntry = (idx,k,v) => setData(p=>({...p,incomes:p.incomes.map((x,i)=>i===idx?{...x,[k]:v}:x)}));
+  const blankIncome = () => ({id:Date.now(),borrower:'Borrower',type:'Employment Income',employer:'',addr1:'',city:'',state:'',zip:'',country:'United States',phone:'',verPhone:'',verEmail:'',position:'',startDate:'',endDate:'',base:'',overtime:'',bonuses:'',commission:'',tips:'',seasonal:'',otherW2:'',currentEmp:true,primary:true,selfEmp:false,familyRelated:false});
+  const addEntry = () => setData(p=>({...p, incomes:[...((p.incomes&&p.incomes.length)?p.incomes:[blankIncome()]),{...blankIncome(),primary:false}]}));
+  const updEntry = (idx,k,v) => setData(p=>{
+    const list = (p.incomes && p.incomes.length) ? p.incomes : [blankIncome()];
+    return {...p, incomes: list.map((x,i)=>i===idx?{...x,[k]:v}:x)};
+  });
   const total = (data.incomes||[]).reduce((a,x)=>a+['base','overtime','bonuses','commission','tips','seasonal','otherW2'].reduce((b,k)=>b+(parseFloat(x[k])||0),0),0);
   const incomes = data.incomes && data.incomes.length ? data.incomes : [{id:'primary',employer:'',position:'',startDate:'',base:'',overtime:'',bonuses:'',commission:'',tips:'',seasonal:'',otherW2:''}];
 
-  const IncomeFields = ({inc, idx}) => (<>
+  const IncomeFields = (inc, idx) => (<>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
       <FField label="Employer Name"><FInput value={inc.employer} onChange={e=>updEntry(idx,'employer',e.target.value)} placeholder="Company name"/></FField>
       <FField label="Position / Title"><FInput value={inc.position} onChange={e=>updEntry(idx,'position',e.target.value)}/></FField>
@@ -1240,7 +1244,7 @@ function Section2Employment({ data, setData }) {
 
   return <>
     {/* ── Primary income — static panel like Loan Info, no card/remove ── */}
-    <IncomeFields inc={incomes[0]} idx={0}/>
+    {IncomeFields(incomes[0], 0)}
 
     {/* ── Additional income entries — removable cards ── */}
     {incomes.slice(1).map((inc,i)=>{
@@ -1251,7 +1255,7 @@ function Section2Employment({ data, setData }) {
             <span>Additional Income #{idx}</span>
             <button className="btn btn-danger btn-sm" onClick={()=>setData(p=>({...p,incomes:p.incomes.filter((_,i2)=>i2!==idx)}))}>✕ Remove</button>
           </div>
-          <IncomeFields inc={inc} idx={idx}/>
+          {IncomeFields(inc, idx)}
         </div>
       );
     })}
@@ -2782,7 +2786,7 @@ function Form1003({ loan, onBack, showToast }) {
               const adjustments    = parseFloat(formData.adjustments_other_credits)||0;
               const cashFromBorrower = totalClosingCosts + downPayment - earnest - sellerCredits - fundsForBorr - closingFin - adjustments;
 
-              const EditableAmt = ({field, negate}) => (
+              const EditableAmt = (field, negate) => (
                 <div style={{display:'flex',alignItems:'center',gap:2}}>
                   {negate && parseFloat(formData[field])>0 && <span style={{color:'#b91c1c',fontSize:14}}>−</span>}
                   <span style={{fontSize:14,color:'var(--text-3)',marginRight:2}}>$</span>
@@ -2813,7 +2817,7 @@ function Form1003({ loan, onBack, showToast }) {
                   ].map(([lbl,field,negate])=>(
                     <div key={field} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
                       <span style={{color:'var(--text-2)'}}>{lbl}</span>
-                      <EditableAmt field={field} negate={negate}/>
+                      {EditableAmt(field, negate)}
                     </div>
                   ))}
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
