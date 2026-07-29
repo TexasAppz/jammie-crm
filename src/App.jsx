@@ -1222,75 +1222,76 @@ function Section2Employment({ data, setData }) {
   const addEntry = () => setData(p=>({...p, incomes:[...p.incomes,{id:Date.now(),borrower:'Borrower',type:'Employment Income',employer:'',addr1:'',city:'',state:'',zip:'',country:'United States',phone:'',verPhone:'',verEmail:'',position:'',startDate:'',endDate:'',base:'',overtime:'',bonuses:'',commission:'',tips:'',seasonal:'',otherW2:'',currentEmp:true,primary:false,selfEmp:false,familyRelated:false}]}));
   const updEntry = (idx,k,v) => setData(p=>({...p,incomes:p.incomes.map((x,i)=>i===idx?{...x,[k]:v}:x)}));
   const total = (data.incomes||[]).reduce((a,x)=>a+['base','overtime','bonuses','commission','tips','seasonal','otherW2'].reduce((b,k)=>b+(parseFloat(x[k])||0),0),0);
+  const incomes = data.incomes && data.incomes.length ? data.incomes : [{id:'primary',employer:'',position:'',startDate:'',base:'',overtime:'',bonuses:'',commission:'',tips:'',seasonal:'',otherW2:''}];
+
+  const IncomeFields = ({inc, idx}) => (<>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
+      <FField label="Employer Name"><FInput value={inc.employer} onChange={e=>updEntry(idx,'employer',e.target.value)} placeholder="Company name"/></FField>
+      <FField label="Position / Title"><FInput value={inc.position} onChange={e=>updEntry(idx,'position',e.target.value)}/></FField>
+      <FField label="Start Date"><FInput type="date" value={inc.startDate} onChange={e=>updEntry(idx,'startDate',e.target.value)}/></FField>
+    </div>
+    <div style={{fontSize:12,fontWeight:600,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:10}}>Monthly Income Details</div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16}}>
+      {[['base','Base Income'],['overtime','Overtime'],['bonuses','Bonuses'],['commission','Commission'],['tips','Tip Income'],['seasonal','Seasonal'],['otherW2','Other W2']].map(([k,lbl])=>(
+        <FField key={k} label={`${lbl} ($)`}><DollarInput value={inc[k]} onChange={e=>updEntry(idx,k,e.target.value)}/></FField>
+      ))}
+    </div>
+  </>);
+
   return <>
-    {(data.incomes||[]).map((inc,idx)=>(
-      <div key={inc.id} className="item-card">
-        <div className="item-card-hdr"><span>Income Entry #{idx+1}</span><button className="btn btn-danger btn-sm" onClick={()=>setData(p=>({...p,incomes:p.incomes.filter((_,i)=>i!==idx)}))}>✕ Remove</button></div>
-        <div className="form-grid" style={{marginBottom:12}}>
-          <FField label="Borrower"><FSelect value={inc.borrower} onChange={e=>updEntry(idx,'borrower',e.target.value)}><option>Borrower</option><option>Co-Borrower</option></FSelect></FField>
-          <FField label="Income Type"><FSelect value={inc.type} onChange={e=>updEntry(idx,'type',e.target.value)}><option>Employment Income</option><option>Self-Employment</option><option>Rental Income</option><option>Social Security</option><option>Pension/Retirement</option><option>Other</option></FSelect></FField>
+    {/* ── Primary income — static panel like Loan Info, no card/remove ── */}
+    <IncomeFields inc={incomes[0]} idx={0}/>
+
+    {/* ── Additional income entries — removable cards ── */}
+    {incomes.slice(1).map((inc,i)=>{
+      const idx = i+1;
+      return (
+        <div key={inc.id} className="item-card" style={{marginTop:20}}>
+          <div className="item-card-hdr">
+            <span>Additional Income #{idx}</span>
+            <button className="btn btn-danger btn-sm" onClick={()=>setData(p=>({...p,incomes:p.incomes.filter((_,i2)=>i2!==idx)}))}>✕ Remove</button>
+          </div>
+          <IncomeFields inc={inc} idx={idx}/>
         </div>
-        <div className="f1003-sub-hdr" style={{margin:'0 -16px 12px',borderRadius:0}}>Employment Details</div>
-        <div style={{display:'flex',gap:16,marginBottom:12,flexWrap:'wrap'}}>
-          <label className="check-row"><input type="checkbox" checked={inc.primary} onChange={e=>updEntry(idx,'primary',e.target.checked)}/> Primary</label>
-          <label className="check-row"><input type="checkbox" checked={inc.currentEmp} onChange={e=>updEntry(idx,'currentEmp',e.target.checked)}/> Current Employment</label>
-          <label className="check-row"><input type="checkbox" checked={inc.selfEmp} onChange={e=>updEntry(idx,'selfEmp',e.target.checked)}/> Self-Employed / Business Owner</label>
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,marginBottom:12}}>
-          <FField label="Employer Name"><FInput value={inc.employer} onChange={e=>updEntry(idx,'employer',e.target.value)} placeholder="Company name"/></FField>
-          <FField label="Address Line 1"><FInput value={inc.addr1} onChange={e=>updEntry(idx,'addr1',e.target.value)}/></FField>
-          <FField label="City"><FInput value={inc.city} onChange={e=>updEntry(idx,'city',e.target.value)}/></FField>
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:14,marginBottom:12}}>
-          <FField label="State"><FSelect value={inc.state} onChange={e=>updEntry(idx,'state',e.target.value)}><option value="">Select</option>{US_STATES_1003.map(s=><option key={s}>{s}</option>)}</FSelect></FField>
-          <FField label="ZIP"><FInput value={inc.zip} onChange={e=>updEntry(idx,'zip',e.target.value)}/></FField>
-          <FField label="Employer Phone"><FInput value={inc.phone} onChange={e=>updEntry(idx,'phone',e.target.value)} placeholder="000-000-0000"/></FField>
-          <FField label="Position / Title"><FInput value={inc.position} onChange={e=>updEntry(idx,'position',e.target.value)}/></FField>
-        </div>
-        <div className="form-grid" style={{marginBottom:12}}>
-          <FField label="Start Date"><FInput type="date" value={inc.startDate} onChange={e=>updEntry(idx,'startDate',e.target.value)}/></FField>
-          <FField label="End Date"><FInput type="date" value={inc.endDate} onChange={e=>updEntry(idx,'endDate',e.target.value)}/></FField>
-        </div>
-        <label className="check-row" style={{marginBottom:14,fontSize:12,color:'var(--text-2)'}}><input type="checkbox" checked={inc.familyRelated} onChange={e=>updEntry(idx,'familyRelated',e.target.checked)}/> I am employed by a family member, property seller, real estate agent, or other party to the transaction.</label>
-        <div className="f1003-sub-hdr" style={{margin:'0 -16px 12px',borderRadius:0}}>Monthly Income Details</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14}}>
-          {[['base','Base Income'],['overtime','Overtime'],['bonuses','Bonuses'],['commission','Commission'],['tips','Tip Income'],['seasonal','Seasonal'],['otherW2','Other W2']].map(([k,lbl])=>(
-            <FField key={k} label={`${lbl} ($)`}><DollarInput value={inc[k]} onChange={e=>updEntry(idx,k,e.target.value)}/></FField>
-          ))}
-        </div>
-      </div>
-    ))}
-    <button className="btn-add-dashed" onClick={addEntry}>+ Add Income / Employment</button>
+      );
+    })}
+
+    <button className="btn-add-dashed" onClick={addEntry} style={{marginTop:16}}>+ Add Income / Employment</button>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'var(--accent-light)',borderRadius:'var(--radius)',marginTop:16,fontWeight:700,color:'var(--section-hdr)'}}>
       <span>Total Monthly Income</span><span>${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
     </div>
   </>;
 }
 
+const ASSET_CATEGORIES = [
+  'Checking Account',
+  'Savings Account',
+  'Retirement (401k/IRA)',
+  'Stocks / Bonds / Mutual Funds',
+  'Other Assets',
+];
+
 function Section3Assets({ data, setData }) {
-  const addAsset = () => setData(p=>({...p,assets:[...p.assets,{id:Date.now(),owner:'Borrower',type:'',depositor:'',addr1:'',addr2:'',city:'',state:'',zip:'',acct:'',value:''}]}));
-  const upd = (idx,k,v) => setData(p=>({...p,assets:p.assets.map((x,i)=>i===idx?{...x,[k]:v}:x)}));
+  const getEntry = (type) => (data.assets||[]).find(a=>a.type===type);
+  const getVal   = (type) => getEntry(type)?.value || '';
+  const setVal = (type, val) => setData(p => {
+    const list = p.assets || [];
+    const exists = list.find(a=>a.type===type);
+    const assets = exists
+      ? list.map(a => a.type===type ? {...a, value:val} : a)
+      : [...list, {id:'asset-'+type, owner:'Borrower', type, depositor:'', addr1:'', addr2:'', city:'', state:'', zip:'', acct:'', value:val}];
+    return {...p, assets};
+  });
   const total = (data.assets||[]).reduce((a,x)=>a+(parseFloat(x.value)||0),0);
+
   return <>
-    {(data.assets||[]).map((ast,idx)=>(
-      <div key={ast.id} className="item-card">
-        <div className="item-card-hdr"><span>Asset #{idx+1}</span><button className="btn btn-danger btn-sm" onClick={()=>setData(p=>({...p,assets:p.assets.filter((_,i)=>i!==idx)}))}>✕ Remove</button></div>
-        <FField label="Asset Owner" style={{marginBottom:12}}><FSelect value={ast.owner} onChange={e=>upd(idx,'owner',e.target.value)}><option>Borrower</option><option>Co-Borrower</option><option>Both</option></FSelect></FField>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:14,marginBottom:12}}>
-          <FField label="Asset Type"><FSelect value={ast.type} onChange={e=>upd(idx,'type',e.target.value)}><option value="">Select</option><option>Checking Account</option><option>Savings Account</option><option>Money Market</option><option>CD</option><option>Stocks / Bonds</option><option>Mutual Funds</option><option>Retirement (401k/IRA)</option><option>Life Insurance</option><option>Real Estate</option><option>Automobile</option><option>Earnest Money</option><option>Gift Funds</option><option>Other</option></FSelect></FField>
-          <FField label="Depositor / Institution"><FInput value={ast.depositor} onChange={e=>upd(idx,'depositor',e.target.value)} placeholder="Bank name"/></FField>
-          <FField label="Address Line 1"><FInput value={ast.addr1} onChange={e=>upd(idx,'addr1',e.target.value)}/></FField>
-          <FField label="Address Line 2"><FInput value={ast.addr2} onChange={e=>upd(idx,'addr2',e.target.value)}/></FField>
-        </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:14}}>
-          <FField label="City"><FInput value={ast.city} onChange={e=>upd(idx,'city',e.target.value)}/></FField>
-          <FField label="State"><FSelect value={ast.state} onChange={e=>upd(idx,'state',e.target.value)}><option value="">Select</option>{US_STATES_1003.map(s=><option key={s}>{s}</option>)}</FSelect></FField>
-          <FField label="Account Number"><FInput value={ast.acct} onChange={e=>upd(idx,'acct',e.target.value)}/></FField>
-          <FField label="Cash / Fair Mkt Value ($)"><DollarInput value={ast.value} onChange={e=>upd(idx,'value',e.target.value)}/></FField>
-        </div>
-      </div>
-    ))}
-    <button className="btn-add-dashed" onClick={addAsset}>+ Add Asset</button>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16}}>
+      {ASSET_CATEGORIES.map(cat => (
+        <FField key={cat} label={`${cat} ($)`}>
+          <DollarInput value={getVal(cat)} onChange={e=>setVal(cat, e.target.value)}/>
+        </FField>
+      ))}
+    </div>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'var(--accent-light)',borderRadius:'var(--radius)',marginTop:16,fontWeight:700,color:'var(--section-hdr)'}}>
       <span>Total Assets</span><span>${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
     </div>
