@@ -1639,7 +1639,11 @@ function Form1003({ loan, onBack, showToast }) {
 
     // ── Step 1: Pre-fill from loans table (instant, no API needed) ──
     // Split "Yusmari Rosario Noguera" → firstName="Yusmari" lastName="Rosario Noguera"
-    const nameParts = (loan.borrower || '').trim().split(' ');
+    // Split "Yusmari Rosario Noguera" → firstName="Yusmari" lastName="Rosario Noguera"
+    // Ignore the "New Borrower" placeholder so the fields start genuinely blank.
+    const rawName = (loan.borrower || '').trim();
+    const isPlaceholderName = !rawName || rawName.toLowerCase() === 'new borrower';
+    const nameParts = isPlaceholderName ? [] : rawName.split(' ');
     const firstFromLoan = nameParts[0] || '';
     const lastFromLoan  = nameParts.slice(1).join(' ') || '';
 
@@ -1909,7 +1913,7 @@ function Form1003({ loan, onBack, showToast }) {
       if (loan.id) {
         // Update loans table
         await db.loans.update(loan.id, {
-          borrower:         fullName !== 'New Borrower' ? fullName : loan.borrower,
+          borrower:         [b.firstName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower',
           loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
           rate:             parseFloat(formData.rate)         || loan.rate        || null,
           ltv:              parseFloat(formData.appraisedVal) > 0
@@ -3013,6 +3017,21 @@ function LoansPage({ showToast }) {
     if (search) r = r.filter(l => (l.borrower||"").toLowerCase().includes(search.toLowerCase()) || (l.loan_number||"").includes(search));
     return r.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
   }, [loans, search, statusFilter]);
+
+  // Delete a loan — was missing entirely, so the 🗑 button did nothing
+  const handleDelete = async () => {
+    if (!confirmDel) return;
+    const id = confirmDel.id;
+    try {
+      await db.loans.delete(id);
+      setLoans(p => p.filter(l => l.id !== id));
+      setConfirmDel(null);
+      showToast('Loan deleted');
+    } catch (err) {
+      setConfirmDel(null);
+      showToast('⚠ Could not delete loan: ' + err.message);
+    }
+  };
 
   const handleNewLoan = async () => {
     try {
