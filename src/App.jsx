@@ -1631,7 +1631,7 @@ function Section10GovtMonitoring({ data, setData, borrowers }) {
   </>;
 }
 
-function Form1003({ loan, onBack, showToast }) {
+function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   const [borrowers, setBorrowers] = useState([emptyBorrower1003('Borrower')]);
   const [activeBIdx, setActiveBIdx] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1657,15 +1657,17 @@ function Form1003({ loan, onBack, showToast }) {
     closing_costs_financed:'', adjustments_other_credits:'',
   });
 
-  // ── Load data from BOTH loans table AND 1003 DB on open ────────
-  useEffect(() => {
-    if (!loan.id) { setLoading(false); return; }
+  // ── Load data from BOTH loans table AND 1003 DB — used on open,
+  // and again after a MISMO import so the UI updates in place
+  // (no full page reload, no lost navigation context) ──────────
+  const loadLoanData = useCallback((loanRow) => {
+    if (!loanRow.id) { setLoading(false); return; }
 
     // ── Step 1: Pre-fill from loans table (instant, no API needed) ──
     // Split "Yusmari Rosario Noguera" → firstName="Yusmari" lastName="Rosario Noguera"
     // Split "Yusmari Rosario Noguera" → firstName="Yusmari" lastName="Rosario Noguera"
     // Ignore the "New Borrower" placeholder so the fields start genuinely blank.
-    const rawName = (loan.borrower || '').trim();
+    const rawName = (loanRow.borrower || '').trim();
     const isPlaceholderName = !rawName || rawName.toLowerCase() === 'new borrower';
     const nameParts = isPlaceholderName ? [] : rawName.split(' ');
     const firstFromLoan = nameParts[0] || '';
@@ -1673,38 +1675,38 @@ function Form1003({ loan, onBack, showToast }) {
 
     setFormData(p => ({
       ...p,
-      baseLoan:     loan.loan_amount ? String(loan.loan_amount) : '',
-      rate:         loan.rate        ? String(loan.rate)        : '',
-      appraisedVal: loan.loan_amount ? String(loan.loan_amount) : '',
-      spAddr1:  loan.subject_property && loan.subject_property !== 'TBD'
-                  ? loan.subject_property.split(',')[0]?.trim() : '',
-      spCity:   loan.subject_property?.includes(',')
-                  ? loan.subject_property.split(',')[1]?.trim()?.split(' ')[0] : '',
-      spState:  loan.subject_property?.includes(',')
-                  ? loan.subject_property.split(',')[1]?.trim()?.split(' ')[1] : '',
-      mortgagePurpose: loan.purpose || 'Purchase Home',
-      mortgageType: loan.product?.includes('FHA')    ? 'FHA'
-                  : loan.product?.includes('VA')     ? 'VA'
-                  : loan.product?.includes('NON-QM') ? 'NON-QM'
+      baseLoan:     loanRow.loan_amount ? String(loanRow.loan_amount) : '',
+      rate:         loanRow.rate        ? String(loanRow.rate)        : '',
+      appraisedVal: loanRow.loan_amount ? String(loanRow.loan_amount) : '',
+      spAddr1:  loanRow.subject_property && loanRow.subject_property !== 'TBD'
+                  ? loanRow.subject_property.split(',')[0]?.trim() : '',
+      spCity:   loanRow.subject_property?.includes(',')
+                  ? loanRow.subject_property.split(',')[1]?.trim()?.split(' ')[0] : '',
+      spState:  loanRow.subject_property?.includes(',')
+                  ? loanRow.subject_property.split(',')[1]?.trim()?.split(' ')[1] : '',
+      mortgagePurpose: loanRow.purpose || 'Purchase Home',
+      mortgageType: loanRow.product?.includes('FHA')    ? 'FHA'
+                  : loanRow.product?.includes('VA')     ? 'VA'
+                  : loanRow.product?.includes('NON-QM') ? 'NON-QM'
                   : 'Conventional',
       // Payment fields from loans table
-      pmt_hoi:              loan.pmt_hoi              ? String(loan.pmt_hoi)              : '',
-      pmt_property_taxes:   loan.pmt_property_taxes   ? String(loan.pmt_property_taxes)   : '',
-      pmt_mi:               loan.pmt_mi               ? String(loan.pmt_mi)               : '',
-      pmt_supplemental:     loan.pmt_supplemental     ? String(loan.pmt_supplemental)     : '',
-      pmt_association_dues: loan.pmt_association_dues ? String(loan.pmt_association_dues) : '',
-      pmt_other:            loan.pmt_other            ? String(loan.pmt_other)            : '',
-      pmt_other_desc:       loan.pmt_other_desc       || '',
-      refiType:             loan.refi_type            || '',
-      cashOutPurpose:       loan.cash_out_purpose     || '',
-      lienPosition:         loan.lien_position        || 'First Lien',
-      amortTerm:            loan.amort_term           ? String(loan.amort_term) : '360',
-      creditScore:          loan.credit_score         ? String(loan.credit_score) : '',
-      earnest_money_deposit:     loan.earnest_money_deposit     ? String(loan.earnest_money_deposit)     : '',
-      seller_credits:            loan.seller_credits            ? String(loan.seller_credits)            : '',
-      funds_for_borrower:        loan.funds_for_borrower        ? String(loan.funds_for_borrower)        : '',
-      closing_costs_financed:    loan.closing_costs_financed    ? String(loan.closing_costs_financed)    : '',
-      adjustments_other_credits: loan.adjustments_other_credits ? String(loan.adjustments_other_credits): '',
+      pmt_hoi:              loanRow.pmt_hoi              ? String(loanRow.pmt_hoi)              : '',
+      pmt_property_taxes:   loanRow.pmt_property_taxes   ? String(loanRow.pmt_property_taxes)   : '',
+      pmt_mi:               loanRow.pmt_mi               ? String(loanRow.pmt_mi)               : '',
+      pmt_supplemental:     loanRow.pmt_supplemental     ? String(loanRow.pmt_supplemental)     : '',
+      pmt_association_dues: loanRow.pmt_association_dues ? String(loanRow.pmt_association_dues) : '',
+      pmt_other:            loanRow.pmt_other            ? String(loanRow.pmt_other)            : '',
+      pmt_other_desc:       loanRow.pmt_other_desc       || '',
+      refiType:             loanRow.refi_type            || '',
+      cashOutPurpose:       loanRow.cash_out_purpose     || '',
+      lienPosition:         loanRow.lien_position        || 'First Lien',
+      amortTerm:            loanRow.amort_term           ? String(loanRow.amort_term) : '360',
+      creditScore:          loanRow.credit_score         ? String(loanRow.credit_score) : '',
+      earnest_money_deposit:     loanRow.earnest_money_deposit     ? String(loanRow.earnest_money_deposit)     : '',
+      seller_credits:            loanRow.seller_credits            ? String(loanRow.seller_credits)            : '',
+      funds_for_borrower:        loanRow.funds_for_borrower        ? String(loanRow.funds_for_borrower)        : '',
+      closing_costs_financed:    loanRow.closing_costs_financed    ? String(loanRow.closing_costs_financed)    : '',
+      adjustments_other_credits: loanRow.adjustments_other_credits ? String(loanRow.adjustments_other_credits): '',
     }));
 
     // Pre-fill borrower name from loans table as fallback
@@ -1717,7 +1719,7 @@ function Form1003({ loan, onBack, showToast }) {
     }
 
     // ── Step 2: Override with full 1003 DB record if it exists ──────
-    db.form1003.getByLoan(loan.id)
+    db.form1003.getByLoan(loanRow.id)
       .then(existing => {
         if (existing && existing.id) {
           setBorrowers([{
@@ -1781,7 +1783,9 @@ function Form1003({ loan, onBack, showToast }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [loan.id]);
+  }, []);
+
+  useEffect(() => { loadLoanData(loan); }, [loan.id, loadLoanData]);
 
   // ── DTI CALCULATION — live from Income, PITI, Liabilities ───────
   const calcDTI = () => {
@@ -2082,13 +2086,25 @@ function Form1003({ loan, onBack, showToast }) {
     try {
       const text = await file.text();
       const result = await db.mismo.import(loan.id, text);
-      showToast('✓ MISMO file imported — reloading loan data');
+
+      // Update in place — no page reload, so the user stays exactly
+      // where they are (this app has no URL routing, so a reload would
+      // otherwise dump them back to the Dashboard).
+      if (result.loan) {
+        onLoanUpdated?.(result.loan);  // parent's `loan` prop -> fixes the
+                                        // title line (subject_property /
+                                        // loan_status), which reads the
+                                        // prop directly rather than formData
+        loadLoanData(result.loan);     // re-fetches the updated form_1003
+                                        // row and repopulates formData/
+                                        // borrowers -> updates the sticky
+                                        // header + every tab automatically
+      }
+
+      showToast('✓ MISMO file imported');
       // Save a copy of the imported file itself to the Documents list too
       await db.documents.upload(loan.id, file, null, 'mismo_import').catch(() => {});
       loadDocuments();
-      // Reload the loan/1003 data shown in the other tabs so imported
-      // values are reflected without requiring a manual page refresh.
-      window.location.reload();
     } catch (e) {
       showToast(`⚠ Import failed: ${e.message}`);
     } finally {
@@ -3271,7 +3287,7 @@ function LoansPage({ showToast }) {
 
   // If 1003 is open, render the full-page form instead
   if (open1003) {
-    return <Form1003 loan={open1003} onBack={()=>{ setOpen1003(null); db.loans.getAll().then(setLoans); }} showToast={showToast} />;
+    return <Form1003 loan={open1003} onBack={()=>{ setOpen1003(null); db.loans.getAll().then(setLoans); }} showToast={showToast} onLoanUpdated={(freshLoan)=>setOpen1003(freshLoan)} />;
   }
 
   return (

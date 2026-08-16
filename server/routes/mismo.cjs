@@ -46,6 +46,18 @@ router.post('/import/:loan_id', async (req, res) => {
       return res.status(400).json({ error: `Could not parse file: ${parseErr.message}` });
     }
 
+    // loans.borrower is a denormalized display name (used by the Loans
+    // list, the Form1003 title, etc.) — parseMismoXml deliberately
+    // doesn't set it directly since it's a Jammie-specific derived field,
+    // not a real MISMO element. Derive it here the same way the frontend's
+    // handleSave already does, so an import doesn't leave a loan showing
+    // "New Borrower" even though the real name landed in form_1003.
+    const importedFirst = parsed.form1003.first_nm;
+    const importedLast = parsed.form1003.last_nm;
+    if (importedFirst || importedLast) {
+      parsed.loan.borrower = [importedFirst, importedLast].filter(Boolean).join(' ');
+    }
+
     if (Object.keys(parsed.loan).length) {
       await db.query('UPDATE loans SET ? WHERE id=?', [parsed.loan, loanId]);
     }
