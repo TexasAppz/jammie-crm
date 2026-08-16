@@ -630,6 +630,30 @@ const db = {
     update:    (id,data) => apiFetch(`/api/fees/${id}`,  { method:'PUT',    body:data }).catch(() => mockDb.fees.update(id,data)),
     delete:    (id)      => apiFetch(`/api/fees/${id}`,  { method:'DELETE' }).catch(() => mockDb.fees.delete(id)),
   },
+  documents: {
+    // No offline/mock fallback here — uploading files and importing/
+    // exporting XML genuinely require the live API. Callers should show
+    // an error toast on rejection rather than silently degrading.
+    getByLoan: (loanId) => apiFetch(`/api/documents/loan/${loanId}`),
+    upload: async (loanId, file, mloId, docSource = 'upload') => {
+      const form = new FormData();
+      form.append('file', file);
+      if (mloId) form.append('mlo_id', mloId);
+      form.append('doc_source', docSource);
+      const res = await fetch(`${API_URL}/api/documents/loan/${loanId}`, { method: 'POST', body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+      return res.json();
+    },
+    downloadUrl: (docId) => `${API_URL}/api/documents/${docId}/download`,
+    delete: (docId) => apiFetch(`/api/documents/${docId}`, { method: 'DELETE' }),
+  },
+  mismo: {
+    exportUrl: (loanId) => `${API_URL}/api/mismo/export/${loanId}`,
+    import: (loanId, xmlText) => apiFetch(`/api/mismo/import/${loanId}`, { method: 'POST', body: { xml: xmlText } }),
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -1990,10 +2014,106 @@ function Form1003({ loan, onBack, showToast }) {
     { id:'borrower',  label:'Borrower Info',     icon:'👤' },
     { id:'financial', label:'Financial Info',    icon:'💰' },
     { id:'fees',      label:'Review Fees',       icon:'📋' },
+    { id:'documents', label:'Documents',         icon:'📁' },
   ];
   const [activeTab, setActiveTab] = useState('loan');
   const [loanSubTab, setLoanSubTab] = useState('loan');
   const [borrowerSubTab, setBorrowerSubTab] = useState('basic');
+
+  // ── Documents tab state ──────────────────────────────────────
+  const [documents, setDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [importingMismo, setImportingMismo] = useState(false);
+  const [confirmImportFile, setConfirmImportFile] = useState(null);
+  const fileUploadRef = useRef(null);
+  const mismoImportRef = useRef(null);
+
+  const loadDocuments = useCallback(() => {
+    if (!loan?.id) return;
+    setDocumentsLoading(true);
+    db.documents.getByLoan(loan.id).then(setDocuments).catch(() => setDocuments([])).finally(() => setDocumentsLoading(false));
+  }, [loan?.id]);
+
+  useEffect(() => { if (activeTab === 'documents') loadDocuments(); }, [activeTab, loadDocuments]);
+
+  const handleFileUpload = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setUploadingFile(true);
+    try {
+      for (const file of files) {
+        await db.documents.upload(loan.id, file);
+      }
+      showToast(files.length > 1 ? `${files.length} files uploaded` : 'File uploaded');
+      loadDocuments();
+    } catch (e) {
+      showToast(`⚠ Upload failed: ${e.message}`);
+    } finally {
+      setUploadingFile(false);
+      if (fileUploadRef.current) fileUploadRef.current.value = '';
+    }
+  };
+
+  const handleDeleteDocument = async (docId) => {
+    try {
+      await db.documents.delete(docId);
+      showToast('Document deleted');
+      loadDocuments();
+    } catch (e) {
+      showToast(`⚠ Delete failed: ${e.message}`);
+    }
+  };
+
+  const handleExportMismo = () => {
+    window.open(db.mismo.exportUrl(loan.id), '_blank');
+  };
+
+  const handleMismoFileSelected = (file) => {
+    if (!file) return;
+    setConfirmImportFile(file);
+  };
+
+  const runMismoImport = async () => {
+    const file = confirmImportFile;
+    setConfirmImportFile(null);
+    if (!file) return;
+    setImportingMismo(true);
+    try {
+      const text = await file.text();
+      const result = await db.mismo.import(loan.id, text);
+      showToast('✓ MISMO file imported — reloading loan data');
+      // Save a copy of the imported file itself to the Documents list too
+      await db.documents.upload(loan.id, file, null, 'mismo_import').catch(() => {});
+      loadDocuments();
+      // Reload the loan/1003 data shown in the other tabs so imported
+      // values are reflected without requiring a manual page refresh.
+      window.location.reload();
+    } catch (e) {
+      showToast(`⚠ Import failed: ${e.message}`);
+    } finally {
+      setImportingMismo(false);
+      if (mismoImportRef.current) mismoImportRef.current.value = '';
+    }
+  };
+
+  const fmtFileSize = (bytes) => {
+    if (!bytes) return '--';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const fileIcon = (fileType, fileName) => {
+    const t = (fileType || '').toLowerCase();
+    const n = (fileName || '').toLowerCase();
+    if (t.includes('pdf') || n.endsWith('.pdf')) return '📕';
+    if (t.includes('xml') || n.endsWith('.xml')) return '📰';
+    if (t.includes('sheet') || t.includes('excel') || n.endsWith('.xlsx') || n.endsWith('.xls')) return '📗';
+    if (t.includes('word') || n.endsWith('.docx') || n.endsWith('.doc')) return '📘';
+    if (t.includes('image')) return '🖼️';
+    return '📄';
+  };
 
   // ── Fees state ────────────────────────────────────────────────
   const [fees, setFees] = useState([]);
@@ -2163,7 +2283,7 @@ function Form1003({ loan, onBack, showToast }) {
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {saving && <span style={{fontSize:12,color:'rgba(255,255,255,.6)',display:'flex',alignItems:'center',gap:4}}>⏳ Saving...</span>}
           <button className="btn btn-sm" style={{background:'rgba(255,255,255,.15)',color:'#fff',border:'1px solid rgba(255,255,255,.3)'}} onClick={handleSave}>💾 Save</button>
-          <button className="btn btn-sm" style={{background:'#ef4444',color:'#fff',border:'none'}} onClick={onBack}>← Back to Loans</button>
+          <button className="btn btn-sm" style={{background:'#ef4444',color:'#fff',border:'none'}} onClick={async()=>{ await autoSave(); onBack(); }}>← Back to Loans</button>
         </div>
       </div>
 
@@ -2181,7 +2301,7 @@ function Form1003({ loan, onBack, showToast }) {
         ))}
         <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
           <span style={{fontSize:13,color:'var(--text-3)'}}>
-            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':'Financial Information'}
+            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':activeTab==='financial'?'Financial Information':activeTab==='fees'?'Review Fees':'Documents'}
           </span>
         </div>
       </div>
@@ -2868,6 +2988,102 @@ function Form1003({ loan, onBack, showToast }) {
           })()}
         </>}
 
+        {/* ════════════════════════════
+            TAB 5 — DOCUMENTS
+        ════════════════════════════ */}
+        {activeTab==='documents' && <>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+            <span style={{fontSize:22,fontWeight:700,color:'var(--text)'}}>Documents</span>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input ref={mismoImportRef} type="file" accept=".xml" style={{display:'none'}}
+                onChange={e => handleMismoFileSelected(e.target.files[0])} />
+              <button className="btn btn-secondary" disabled={importingMismo}
+                onClick={() => mismoImportRef.current?.click()}>
+                {importingMismo ? '⏳ Importing…' : '⬆ Import MISMO 3.4'}
+              </button>
+              <button className="btn btn-secondary" onClick={handleExportMismo}>
+                ⬇ Export MISMO 3.4
+              </button>
+              <input ref={fileUploadRef} type="file" multiple style={{display:'none'}}
+                onChange={e => handleFileUpload(e.target.files)} />
+              <button className="btn btn-primary" disabled={uploadingFile}
+                onClick={() => fileUploadRef.current?.click()}>
+                {uploadingFile ? '⏳ Uploading…' : '+ Upload File'}
+              </button>
+            </div>
+          </div>
+
+          <div
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); handleFileUpload(e.dataTransfer.files); }}
+            style={{border:'2px dashed var(--border)',borderRadius:10,padding:'18px',textAlign:'center',color:'var(--text-3)',fontSize:13,marginBottom:20,background:'var(--cream)'}}>
+            Drag & drop files here (PDF, Word, Excel, images) — or use "+ Upload File" above
+          </div>
+
+          {documentsLoading ? (
+            <div style={{textAlign:'center',padding:'40px 0',color:'var(--text-3)'}}>Loading documents…</div>
+          ) : documents.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📁</div>
+              <div className="empty-title">No documents yet</div>
+              <div className="empty-sub">Upload files or import a MISMO 3.4 file to get started</div>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr>
+                  <th>Document</th><th>Type</th><th>Size</th><th>Source</th><th>Uploaded</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {documents.map(doc => (
+                    <tr key={doc.id}>
+                      <td>
+                        <div className="td-primary" style={{cursor:'default',color:'var(--text)'}}>
+                          {fileIcon(doc.file_type, doc.file_name)} {doc.file_name}
+                        </div>
+                      </td>
+                      <td style={{fontSize:12,color:'var(--text-2)'}}>{doc.file_type || '--'}</td>
+                      <td style={{fontSize:12,color:'var(--text-2)'}}>{fmtFileSize(doc.file_size_bytes)}</td>
+                      <td>
+                        {doc.doc_source === 'mismo_export' ? <span className="badge badge-default">MISMO export</span>
+                          : doc.doc_source === 'mismo_import' ? <span className="badge badge-default">MISMO import</span>
+                          : <span className="badge badge-default">Upload</span>}
+                      </td>
+                      <td style={{fontSize:12,color:'var(--text-3)'}}>{doc.created_at ? new Date(doc.created_at).toLocaleString() : '--'}</td>
+                      <td>
+                        <div className="row-actions">
+                          <a className="btn-icon" title="Download" href={db.documents.downloadUrl(doc.id)} target="_blank" rel="noreferrer">⬇</a>
+                          <button className="btn-icon" title="Delete" onClick={() => handleDeleteDocument(doc.id)}>🗑</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {confirmImportFile && (
+            <div className="modal-overlay" onClick={() => setConfirmImportFile(null)}>
+              <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <span className="modal-title">Import MISMO 3.4 File</span>
+                  <button className="modal-close" onClick={() => setConfirmImportFile(null)}>×</button>
+                </div>
+                <div className="modal-body">
+                  <p style={{fontSize:14,color:'var(--text-2)',lineHeight:1.6}}>
+                    This will overwrite matching fields on this loan (<strong>{loan?.borrower}</strong>, Loan #{loan?.loan_number}) with data from <strong>{confirmImportFile.name}</strong>. Fields the file doesn't include are left unchanged. This can't be undone automatically — continue?
+                  </p>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" onClick={() => setConfirmImportFile(null)}>Cancel</button>
+                  <button className="btn btn-primary" onClick={runMismoImport}>Import & Overwrite</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>}
+
         </>}
       </div>
 
@@ -3128,7 +3344,7 @@ function LeadForm({ initial = {}, onSave, onClose }) {
     ...initial, loan_amount: initial.loan_amount || ''
   });
   const upd = k => e => setD(p => ({ ...p, [k]: e.target.value }));
-  const submit = e => { e.preventDefault(); onSave({ ...d, loan_amount: d.loan_amount ? Number(d.loan_amount) : null, score: Number(d.score) }); };
+  const submit = e => { e.preventDefault(); const { tags, ...rest } = d; onSave({ ...rest, loan_amount: d.loan_amount ? Number(d.loan_amount) : null, score: Number(d.score) }); };
   return (
     <form onSubmit={submit}>
       <div className="form-section">
