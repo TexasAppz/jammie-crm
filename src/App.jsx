@@ -1639,7 +1639,8 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   const [formData, setFormData] = useState({
     incomes:[], assets:[], liabilities:[], reos:[],
     mortgageType:'', amortType:'Fixed', rate:'', mortgagePurpose:'Purchase Home',
-    salesPrice:'', appraisedVal:'', baseLoan:'', financedFees:'', creditScore:'',
+    salesPrice:'', appraisedVal:'', downPayment:'', baseLoan:'', financedFees:'', creditScore:'',
+    existingLiensAmount:'', refinanceProgram:'Full Doc', pmt_first_mortgage:'',
     propType:'Single Family (1-4 Units)', occupancy:'Primary Residence', attachType:'Detached',
     spAddr1:'', spUnit:'', spCity:'', spState:'', spZip:'', spYearBuilt:'',
     titleName:'', mannerHeld:'', propRights:'Fee Simple',
@@ -1677,7 +1678,17 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       ...p,
       baseLoan:     loanRow.loan_amount ? String(loanRow.loan_amount) : '',
       rate:         loanRow.rate        ? String(loanRow.rate)        : '',
-      appraisedVal: loanRow.loan_amount ? String(loanRow.loan_amount) : '',
+      // Real columns now (migration 05). Previously appraisedVal was
+      // defaulted to loan_amount, which forced every loan to show 100% LTV
+      // even when the imported file said otherwise.
+      salesPrice:      loanRow.sales_price      ? String(loanRow.sales_price)      : '',
+      appraisedVal:    loanRow.appraised_value  ? String(loanRow.appraised_value)  : '',
+      downPayment:     loanRow.down_payment     ? String(loanRow.down_payment)
+                        : (loanRow.sales_price && loanRow.loan_amount
+                            ? String((parseFloat(loanRow.sales_price) - parseFloat(loanRow.loan_amount)).toFixed(2)) : ''),
+      existingLiensAmount: loanRow.existing_liens_amount ? String(loanRow.existing_liens_amount) : '',
+      refinanceProgram:    loanRow.refinance_program || 'Full Doc',
+      pmt_first_mortgage:  loanRow.pmt_first_mortgage ? String(loanRow.pmt_first_mortgage) : '',
       spAddr1:  loanRow.subject_property && loanRow.subject_property !== 'TBD'
                   ? loanRow.subject_property.split(',')[0]?.trim() : '',
       spCity:   loanRow.subject_property?.includes(',')
@@ -1824,9 +1835,15 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           loan_status:      loan.loan_status || 'App Intake',
           loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
           rate:             parseFloat(formData.rate)         || loan.rate        || null,
-          ltv:              parseFloat(formData.appraisedVal) > 0
-                              ? parseFloat(((parseFloat(formData.baseLoan||0)/parseFloat(formData.appraisedVal))*100).toFixed(2))
+          ltv:              ltvBasis > 0
+                              ? parseFloat(((parseFloat(formData.baseLoan||0)/ltvBasis)*100).toFixed(2))
                               : loan.ltv || null,
+          sales_price:           parseFloat(formData.salesPrice)          || null,
+          appraised_value:       parseFloat(formData.appraisedVal)        || null,
+          down_payment:          parseFloat(formData.downPayment)         || null,
+          existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
+          refinance_program:     formData.refinanceProgram || null,
+          pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
                               : loan.subject_property || 'TBD',
@@ -1944,9 +1961,15 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           borrower:         [b.firstName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower',
           loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
           rate:             parseFloat(formData.rate)         || loan.rate        || null,
-          ltv:              parseFloat(formData.appraisedVal) > 0
-                              ? parseFloat(((parseFloat(formData.baseLoan||0)/parseFloat(formData.appraisedVal))*100).toFixed(2))
+          ltv:              ltvBasis > 0
+                              ? parseFloat(((parseFloat(formData.baseLoan||0)/ltvBasis)*100).toFixed(2))
                               : loan.ltv || null,
+          sales_price:           parseFloat(formData.salesPrice)          || null,
+          appraised_value:       parseFloat(formData.appraisedVal)        || null,
+          down_payment:          parseFloat(formData.downPayment)         || null,
+          existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
+          refinance_program:     formData.refinanceProgram || null,
+          pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
                               : loan.subject_property || 'TBD',
@@ -2023,6 +2046,34 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   const [activeTab, setActiveTab] = useState('loan');
   const [loanSubTab, setLoanSubTab] = useState('loan');
   const [borrowerSubTab, setBorrowerSubTab] = useState('basic');
+
+  // ── Derived values for Loan Info + Proposed Monthly Payment ───
+  // LTV basis = lesser of purchase price and appraised value (standard
+  // mortgage practice, and what Arive does). On a refinance there's no
+  // purchase price, so it falls back to appraised value alone.
+  const ltvBasis = (() => {
+    const price = parseFloat(formData.salesPrice) || 0;
+    const appr  = parseFloat(formData.appraisedVal) || 0;
+    if (formData.mortgagePurpose === 'Refinance') return appr;
+    if (price > 0 && appr > 0) return Math.min(price, appr);
+    return price || appr;
+  })();
+
+  // Auto-calculated P&I from loan amount / rate / term — used as the
+  // default when the user hasn't manually overridden it (pmt_first_mortgage
+  // empty). Any manual entry wins and is persisted as-is.
+  const autoPI = (() => {
+    const principal = parseFloat(formData.baseLoan) || 0;
+    const annualRate = parseFloat(formData.rate) || 0;
+    const months = parseInt(formData.amortTerm, 10) || 360;
+    if (principal <= 0 || months <= 0) return 0;
+    if (annualRate === 0) return principal / months;
+    const r = annualRate / 100 / 12;
+    return principal * (r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
+  })();
+  const effectivePI = formData.pmt_first_mortgage !== '' && formData.pmt_first_mortgage != null
+    ? (parseFloat(formData.pmt_first_mortgage) || 0)
+    : autoPI;
 
   // ── Documents tab state ──────────────────────────────────────
   const [documents, setDocuments] = useState([]);
@@ -2367,39 +2418,99 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
               <div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
-                  <div className="form-group">
-                    <label className="form-label">Appraised Value *</label>
-                    <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Base Loan Amount *</label>
-                    <div className="dollar-wrap"><input className="form-input" type="number" value={formData.baseLoan||''} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/></div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">LTV *</label>
-                    <div style={{padding:'9px 12px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:15,fontWeight:600,color:'var(--accent)'}}>
-                      {formData.appraisedVal && formData.baseLoan ? ((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(3)+'%' : '--'}
+                {/* PURCHASE — mirrors Arive: Purchase Price, Appraised Value,
+                    Down Payment ($ and %), Base Loan Amount, LTV.
+                    LTV is computed against the LESSER of purchase price and
+                    appraised value, which is standard mortgage practice (and
+                    what Arive does) — using appraised value alone would
+                    understate LTV whenever a home appraises above contract. */}
+                {formData.mortgagePurpose!=='Refinance' && <>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                    <div className="form-group">
+                      <label className="form-label">Purchase Price *</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.salesPrice||''} onChange={e=>setFormData(p=>({...p,salesPrice:e.target.value}))} placeholder="0"/></div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Appraised Value *</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
                     </div>
                   </div>
-                </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 90px 1fr 110px',gap:12,marginBottom:16,alignItems:'end'}}>
+                    <div className="form-group">
+                      <label className="form-label">Down Payment *</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.downPayment||''} onChange={e=>{
+                        const dp = e.target.value;
+                        setFormData(p=>{
+                          const price = parseFloat(p.salesPrice)||0;
+                          return {...p, downPayment: dp, baseLoan: price>0 ? String((price-(parseFloat(dp)||0)).toFixed(2)) : p.baseLoan};
+                        });
+                      }} placeholder="0"/></div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">%</label>
+                      <div style={{padding:'9px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:14,fontWeight:600,textAlign:'center'}}>
+                        {formData.salesPrice && formData.downPayment && parseFloat(formData.salesPrice)>0
+                          ? ((parseFloat(formData.downPayment)/parseFloat(formData.salesPrice))*100).toFixed(3)+'%' : '--'}
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Base Loan Amount *</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.baseLoan||''} onChange={e=>{
+                        const bl = e.target.value;
+                        setFormData(p=>{
+                          const price = parseFloat(p.salesPrice)||0;
+                          return {...p, baseLoan: bl, downPayment: price>0 ? String((price-(parseFloat(bl)||0)).toFixed(2)) : p.downPayment};
+                        });
+                      }} placeholder="0"/></div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">LTV *</label>
+                      <div style={{padding:'9px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:14,fontWeight:600,color:'var(--accent)',textAlign:'center'}}>
+                        {ltvBasis>0 && formData.baseLoan ? ((parseFloat(formData.baseLoan)/ltvBasis)*100).toFixed(3)+'%' : '--'}
+                      </div>
+                    </div>
+                  </div>
+                </>}
 
-                {formData.mortgagePurpose==='Refinance' && <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
-                  <div className="form-group">
-                    <label className="form-label">Refinance Type *</label>
-                    <select className="form-select" value={formData.refiType||''} onChange={e=>setFormData(p=>({...p,refiType:e.target.value}))}>
-                      <option value="">Select</option>
-                      <option>Rate/Term</option><option>Cash-Out</option><option>Streamline</option>
-                    </select>
+                {/* REFINANCE — mirrors Arive's Refinance tab */}
+                {formData.mortgagePurpose==='Refinance' && <>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 110px',gap:16,marginBottom:16}}>
+                    <div className="form-group">
+                      <label className="form-label">Appraised Value *</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Base Loan Amount *</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.baseLoan||''} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/></div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">LTV *</label>
+                      <div style={{padding:'9px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:14,fontWeight:600,color:'var(--accent)',textAlign:'center'}}>
+                        {formData.appraisedVal && formData.baseLoan && parseFloat(formData.appraisedVal)>0
+                          ? ((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(3)+'%' : '--'}
+                      </div>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Cash-Out Purpose *</label>
-                    <select className="form-select" value={formData.cashOutPurpose||''} onChange={e=>setFormData(p=>({...p,cashOutPurpose:e.target.value}))}>
-                      <option value="">Select</option>
-                      <option>Debt Consolidation</option><option>Home Improvement</option><option>Other</option>
-                    </select>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
+                    <div className="form-group">
+                      <label className="form-label">Refinance Type *</label>
+                      <select className="form-select" value={formData.refiType||''} onChange={e=>setFormData(p=>({...p,refiType:e.target.value}))}>
+                        <option value="">- Select -</option>
+                        <option>Rate &amp; Term</option><option>Limited Cash-Out</option><option>Cash-Out</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Existing Liens Amount</label>
+                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.existingLiensAmount||''} onChange={e=>setFormData(p=>({...p,existingLiensAmount:e.target.value}))} placeholder="0"/></div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Refinance Program</label>
+                      <select className="form-select" value={formData.refinanceProgram||'Full Doc'} onChange={e=>setFormData(p=>({...p,refinanceProgram:e.target.value}))}>
+                        <option>Full Doc</option><option>Streamline</option><option>IRRRL</option><option>Other</option>
+                      </select>
+                    </div>
                   </div>
-                </div>}
+                </>}
 
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
                   <div className="form-group">
@@ -2461,18 +2572,31 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   ))}
                 </div>
 
-                {/* First Mortgage — auto-calculated, read-only */}
+                {/* First Mortgage — auto-calculated from loan amount/rate/term,
+                    but manually overridable (a typed value wins and is saved).
+                    Clearing the field returns it to auto. */}
                 {(()=>{
-                  const p=parseFloat(formData.baseLoan)||0;
-                  const r=(parseFloat(formData.rate)||0)/100/12;
-                  const n=parseInt(formData.amortTerm||360);
-                  const pmt=r?(p*(r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1)):0;
+                  const isOverridden = formData.pmt_first_mortgage !== '' && formData.pmt_first_mortgage != null;
                   return (
                     <div style={{display:'grid',gridTemplateColumns:'1fr 90px 110px 90px',padding:'11px 18px',borderBottom:'1px solid var(--border-light)',gap:8,alignItems:'center'}}>
                       <span style={{fontSize:14,color:'var(--text)',fontWeight:500}}>First Mortgage</span>
-                      <span style={{fontSize:12,color:'var(--text-3)',textAlign:'right'}}>Auto</span>
-                      <span style={{fontSize:12,color:'var(--text-3)',textAlign:'right'}}>P&I</span>
-                      <span style={{fontSize:14,fontWeight:700,color:'var(--text)',textAlign:'right'}}>{pmt?'$'+pmt.toFixed(2):'--'}</span>
+                      <div style={{display:'flex',justifyContent:'flex-end'}}>
+                        <div title={isOverridden ? 'Manually overridden — clear the field to return to auto' : 'Calculated from loan amount, rate and term'}
+                          style={{fontSize:11,background:isOverridden?'#fef3c7':'#f3f4f6',color:isOverridden?'#b45309':'var(--text-3)',padding:'2px 7px',borderRadius:10}}>
+                          {isOverridden ? 'Manual' : 'Auto'}
+                        </div>
+                      </div>
+                      <div style={{position:'relative'}}>
+                        <span style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',color:'var(--text-3)',fontSize:13,pointerEvents:'none'}}>$</span>
+                        <input type="number" value={formData.pmt_first_mortgage||''}
+                          onChange={e=>setFormData(p=>({...p,pmt_first_mortgage:e.target.value}))}
+                          placeholder={autoPI ? autoPI.toFixed(2) : '0.00'} step="0.01"
+                          style={{width:'100%',padding:'5px 8px 5px 18px',border:'1px solid var(--border)',borderRadius:5,fontSize:13,textAlign:'right',outline:'none'}}
+                          onFocus={e=>{e.target.style.borderColor='#2563EB';e.target.style.boxShadow='0 0 0 2px rgba(37,99,235,.1)'}}
+                          onBlur={e=>{e.target.style.borderColor='var(--border)';e.target.style.boxShadow='none'}}
+                        />
+                      </div>
+                      <span style={{fontSize:14,fontWeight:700,color:'var(--text)',textAlign:'right'}}>{effectivePI?'$'+effectivePI.toFixed(2):'--'}</span>
                     </div>
                   );
                 })()}
@@ -2527,11 +2651,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
                 {/* Total PITI */}
                 {(()=>{
-                  const p=parseFloat(formData.baseLoan)||0;
-                  const r=(parseFloat(formData.rate)||0)/100/12;
-                  const n=parseInt(formData.amortTerm||360);
-                  const pmt=r?(p*(r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1)):0;
-                  const total=pmt
+                  // Uses effectivePI so a manual First Mortgage override is
+                  // reflected here too, rather than silently recalculating.
+                  const total=effectivePI
                     +(parseFloat(formData.pmt_hoi)||0)
                     +(parseFloat(formData.pmt_property_taxes)||0)
                     +(parseFloat(formData.pmt_mi)||0)

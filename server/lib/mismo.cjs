@@ -238,7 +238,24 @@ function buildMismoXml({ loan, form1003, fees }) {
             <ADDRESS>
               ${tag('AddressLineText', loan.subject_property)}
               <CountryCode>US</CountryCode>
-            </ADDRESS>
+            </ADDRESS>${loan.appraised_value ? `
+            <PROPERTY_DETAIL>
+              ${tag('PropertyEstimatedValueAmount', money(loan.appraised_value))}
+            </PROPERTY_DETAIL>
+            <PROPERTY_VALUATIONS>
+              <PROPERTY_VALUATION>
+                <PROPERTY_VALUATION_DETAIL>
+                  ${tag('PropertyValuationAmount', money(loan.appraised_value))}
+                </PROPERTY_VALUATION_DETAIL>
+              </PROPERTY_VALUATION>
+            </PROPERTY_VALUATIONS>` : ''}${loan.sales_price ? `
+            <SALES_CONTRACTS>
+              <SALES_CONTRACT>
+                <SALES_CONTRACT_DETAIL>
+                  ${tag('SalesContractAmount', money(loan.sales_price))}
+                </SALES_CONTRACT_DETAIL>
+              </SALES_CONTRACT>
+            </SALES_CONTRACTS>` : ''}
           </SUBJECT_PROPERTY>
         </COLLATERAL>
       </COLLATERALS>`;
@@ -299,7 +316,33 @@ function buildMismoXml({ loan, form1003, fees }) {
           <REFINANCE>
             <RefinanceCashOutDeterminationType>${purpose === 'CashOutRefinance' ? 'CashOut' : 'NoCashOut'}</RefinanceCashOutDeterminationType>
             ${tag('RefinancePrimaryPurposeType', loan.cash_out_purpose || 'LimitedCashOut')}
+            ${tag('RefinanceExistingLiensAmount', money(loan.existing_liens_amount))}
+            ${tag('RefinanceProgramIdentifier', loan.refinance_program)}
           </REFINANCE>` : '';
+
+  // Proposed Monthly Payment breakdown — mirrors how Arive emits it, so a
+  // Jammie -> Arive round trip preserves the payment detail rather than
+  // dropping it into the Jammie-only extension block.
+  const housingExpenseDefs = [
+    ['FirstMortgagePrincipalAndInterest', loan.pmt_first_mortgage],
+    ['MIPremium', loan.pmt_mi],
+    ['HomeownersInsurance', loan.pmt_hoi],
+    ['RealEstateTax', loan.pmt_property_taxes],
+    ['HomeownersAssociationDuesAndCondominiumFees', loan.pmt_association_dues],
+    ['SupplementalPropertyInsurance', loan.pmt_supplemental],
+    ['OtherHousingExpense', loan.pmt_other],
+  ];
+  const housingExpensesXml = housingExpenseDefs
+    .filter(([, amt]) => money(amt) && Number(money(amt)) !== 0)
+    .map(([type, amt]) => `
+            <HOUSING_EXPENSE>
+              <HousingExpensePaymentAmount>${esc(money(amt))}</HousingExpensePaymentAmount>
+              <HousingExpenseTimingType>Proposed</HousingExpenseTimingType>
+              <HousingExpenseType>${esc(type)}</HousingExpenseType>
+            </HOUSING_EXPENSE>`).join('');
+  const housingXml = housingExpensesXml ? `
+          <HOUSING_EXPENSES>${housingExpensesXml}
+          </HOUSING_EXPENSES>` : '';
 
   const numericLoanId = numericLoanIdentifier(loan.loan_number, loan.id);
 
@@ -318,7 +361,7 @@ function buildMismoXml({ loan, form1003, fees }) {
               ${tag('LoanIdentifier', numericLoanId)}
               <LoanIdentifierType>LenderLoan</LoanIdentifierType>
             </LOAN_IDENTIFIER>
-          </LOAN_IDENTIFIERS>${refinanceXml}
+          </LOAN_IDENTIFIERS>${housingXml}${refinanceXml}
           <TERMS_OF_LOAN>
             ${tag('BaseLoanAmount', money(loan.loan_amount))}
             <LienPriorityType>${esc(lienPriorityType(loan.lien_position))}</LienPriorityType>
@@ -585,10 +628,46 @@ function parseMismoXml(xmlString) {
     }
     const refiPurpose = dig(loanNode, 'REFINANCE.RefinancePrimaryPurposeType');
     if (refiPurpose) loan.cash_out_purpose = refiPurpose;
+    const existingLiens = num(dig(loanNode, 'REFINANCE.RefinanceExistingLiensAmount'));
+    if (existingLiens !== null) loan.existing_liens_amount = existingLiens;
+    const refiProgram = dig(loanNode, 'REFINANCE.RefinanceProgramIdentifier');
+    if (refiProgram) loan.refinance_program = refiProgram;
   }
   if (collateral) {
     loan.subject_property = dig(collateral, 'ADDRESS.AddressLineText') || undefined;
+    // Purchase price and appraised value are DISTINCT values in real Arive
+    // exports (e.g. $374,000 price vs $355,300 loan = 95% LTV). Jammie
+    // previously had neither, and the frontend defaulted appraised value to
+    // the loan amount, which wrongly produced 100% LTV on every import.
+    loan.sales_price = num(dig(collateral, 'SALES_CONTRACTS.SALES_CONTRACT.SALES_CONTRACT_DETAIL.SalesContractAmount'));
+    loan.appraised_value = num(
+      dig(collateral, 'PROPERTY_VALUATIONS.PROPERTY_VALUATION.PROPERTY_VALUATION_DETAIL.PropertyValuationAmount')
+      ?? dig(collateral, 'PROPERTY_DETAIL.PropertyEstimatedValueAmount')
+    );
   }
+
+  // HOUSING_EXPENSES carries the Proposed Monthly Payment breakdown that
+  // Arive shows (P&I, MI, HOI, taxes...). Jammie already had matching
+  // pmt_* columns — they just were never populated from the file.
+  // Only "Proposed" timing rows are used; files may also carry "Present"
+  // (current housing expense) rows, which are a different thing entirely.
+  let housingExpenses = dig(loanNode, 'HOUSING_EXPENSES.HOUSING_EXPENSE');
+  if (housingExpenses && !Array.isArray(housingExpenses)) housingExpenses = [housingExpenses];
+  const HOUSING_EXPENSE_MAP = {
+    FirstMortgagePrincipalAndInterest: 'pmt_first_mortgage',
+    MIPremium: 'pmt_mi',
+    HomeownersInsurance: 'pmt_hoi',
+    RealEstateTax: 'pmt_property_taxes',
+    HomeownersAssociationDuesAndCondominiumFees: 'pmt_association_dues',
+    SupplementalPropertyInsurance: 'pmt_supplemental',
+    OtherHousingExpense: 'pmt_other',
+  };
+  (housingExpenses || []).forEach(he => {
+    if (dig(he, 'HousingExpenseTimingType') !== 'Proposed') return;
+    const col = HOUSING_EXPENSE_MAP[dig(he, 'HousingExpenseType')];
+    const amt = num(dig(he, 'HousingExpensePaymentAmount'));
+    if (col && amt !== null) loan[col] = amt;
+  });
   if (ext) {
     if (dig(ext, 'LoanStatus')) loan.loan_status = dig(ext, 'LoanStatus');
     if (dig(ext, 'ClosingDate')) loan.closing_date = dateOnly(dig(ext, 'ClosingDate'));
