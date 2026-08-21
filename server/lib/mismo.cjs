@@ -7,21 +7,29 @@
  *
  * SCOPE (deliberate, per product decision):
  *   This maps the fields Jammie's own schema already tracks. It does NOT
- *   attempt full MISMO 3.4 / DU fidelity — declarations, HMDA/government
- *   monitoring, multi-item income arrays, and REO/liability line-item
- *   detail beyond what's in liabilities_json/reos_json are intentionally
- *   out of scope. A file built here is well-formed MISMO-structured XML
- *   suitable for round-tripping within Jammie (or reasonable interchange),
- *   but is NOT guaranteed to be accepted as-is by an AUS (DU/LPA) system,
- *   which expects the full data set.
+ *   attempt full MISMO 3.4 / DU fidelity — PROPERTY_DETAIL, PROPERTY_
+ *   VALUATIONS, and GOVERNMENT_MONITORING (HMDA) are intentionally out of
+ *   scope, since Jammie's schema has no columns for them at all (this
+ *   would need new DB tables — a real scope expansion, not a code fix).
+ *
+ *   Everything else flagged in the 2026-08-16 Arive/UWM file comparison
+ *   IS fixed here: SSN digits-only, DU/ULAD/xlink namespaces on the
+ *   root, SequenceNumber/LoanRoleType/xlink:label on LOAN, a REFINANCE
+ *   section when the loan isn't a purchase, ASSETS export (Jammie
+ *   already captures this in assets_json, it just wasn't wired up),
+ *   EmploymentIncomeIndicator only true when a real EMPLOYER record
+ *   exists, a RELATIONSHIPS section linking LIABILITY/ASSET to the
+ *   borrower and CURRENT_INCOME_ITEM to EMPLOYER via xlink, a numeric-
+ *   only LoanIdentifier, and the JAMMIE extension using a proper
+ *   namespace prefix instead of redefining the default namespace.
  *
  *   Fields Jammie tracks but MISMO's base schema has no slot for (LTV,
  *   DTI front/back, credit score, loan status, the 5 Cash-to-Close
  *   fields, and the itemized monthly payment breakdown) are carried in a
- *   JAMMIE_EXTENSION block under LOAN/EXTENSION/OTHER — this is the
- *   standard MISMO mechanism for lender-specific data and keeps the file
- *   structurally valid rather than inventing non-standard top-level
- *   elements.
+ *   JAMMIE:JAMMIE_LOAN_EXTENSION block under LOAN/EXTENSION/OTHER, using
+ *   a dedicated namespace prefix — this is the standard MISMO mechanism
+ *   for lender-specific data (mirrors how DU:/ULAD: extensions work in
+ *   real DU/Arive files) and keeps the file structurally valid.
  *
  *   Known limitation: `loans.subject_property` has no separate
  *   city/state/zip columns at all, so the MISMO ADDRESS breakdown is
@@ -30,8 +38,13 @@
 
 const { XMLParser } = require('fast-xml-parser');
 
-const MISMO_NS = 'http://www.mismo.org/residential/2009/schemas';
+const MISMO_NS  = 'http://www.mismo.org/residential/2009/schemas';
 const JAMMIE_NS = 'http://www.jammiemortgage.com/schemas/extension';
+// Real values confirmed against an actual DU/Arive MISMO 3.4 export —
+// not guessed. See discrepancy #2 in the 2026-08-16 comparison.
+const XLINK_NS = 'http://www.w3.org/1999/xlink';
+const DU_NS    = 'http://www.datamodelextension.org/Schema/DU';
+const ULAD_NS  = 'http://www.datamodelextension.org/Schema/ULAD';
 
 // ── helpers ────────────────────────────────────────────────────────────
 
@@ -62,7 +75,6 @@ function dateOnly(v) {
     return v.toISOString().slice(0, 10);
   }
   const s = String(v).trim();
-  // Already YYYY-MM-DD (or starts with it, e.g. an ISO datetime string)
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : s;
 }
@@ -70,6 +82,27 @@ function dateOnly(v) {
 function tag(name, value) {
   if (value === null || value === undefined || value === '') return '';
   return `<${name}>${esc(value)}</${name}>`;
+}
+
+// Discrepancy #1: working files send SSN as digits only ("824417255"),
+// Jammie's own display format uses hyphens ("824-41-7255"). Strip on
+// export; import already normalizes either direction.
+function ssnDigits(v) {
+  if (!v) return null;
+  const digits = String(v).replace(/\D/g, '');
+  return digits || null;
+}
+
+// Discrepancy #7: working files use a purely numeric LenderLoan
+// identifier ("1226530433"); Jammie's own loan_number is alphanumeric
+// ("L1786854205714"). Strip the non-numeric prefix rather than
+// inventing a new identifier — if that leaves nothing (edge case),
+// fall back to the DB's own numeric auto-increment id, which is always
+// numeric and always unique.
+function numericLoanIdentifier(loanNumber, loanId) {
+  const digits = String(loanNumber || '').replace(/\D/g, '');
+  if (digits) return digits;
+  return loanId ? String(loanId) : null;
 }
 
 function lienPriorityType(lienPosition) {
@@ -122,27 +155,19 @@ const STATE_NAME_TO_CODE = {
 function stateCode(v) {
   if (!v) return null;
   const s = String(v).trim();
-  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase(); // already a code
-  return STATE_NAME_TO_CODE[s.toLowerCase()] || s; // fall back to raw value
-                                                     // rather than dropping
-                                                     // it silently if it's
-                                                     // an unrecognized state
+  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+  return STATE_NAME_TO_CODE[s.toLowerCase()] || s;
 }
 
 const CODE_TO_STATE_NAME = Object.fromEntries(
   Object.entries(STATE_NAME_TO_CODE).map(([name, code]) => [code, name.replace(/\b\w/g, c => c.toUpperCase())])
 );
 
-// Import-side counterpart: Jammie's own address_state/business_state
-// columns store full names ("Georgia"), so a 2-letter code coming in
-// from an external MISMO file gets converted back to match — otherwise
-// imported rows would show "GA" while every other row shows "Georgia",
-// and the Borrower Info form's state field wouldn't recognize the code.
 function stateNameFromCode(v) {
   if (!v) return null;
   const s = String(v).trim();
   if (/^[A-Za-z]{2}$/.test(s)) return CODE_TO_STATE_NAME[s.toUpperCase()] || s;
-  return s; // already a full name (or unrecognized) — pass through as-is
+  return s;
 }
 
 function safeParseJsonArray(jsonText) {
@@ -155,14 +180,33 @@ function safeParseJsonArray(jsonText) {
   }
 }
 
-function incomeItem(incomeType, amount) {
+// Best-effort mapping from Jammie's free-text asset category to a MISMO
+// AssetType enum value.
+function assetType(jammieType) {
+  const t = (jammieType || '').toLowerCase();
+  if (t.includes('checking')) return 'CheckingAccount';
+  if (t.includes('saving')) return 'SavingsAccount';
+  if (t.includes('retirement') || t.includes('401k') || t.includes('ira')) return 'Retirement';
+  if (t.includes('stock') || t.includes('bond') || t.includes('mutual')) return 'Stock';
+  return 'Other';
+}
+
+// Discrepancy #5 (partial): only claim EmploymentIncomeIndicator=true
+// when a real EMPLOYER record actually exists in the same file — the
+// original code hardcoded `true` unconditionally, creating an "orphan"
+// reference (income claims to be employment-based, but no EMPLOYER
+// exists to back it up) whenever a borrower had income figures entered
+// without an employer name. Also now carries an xlink:label so it can
+// be linked to EMPLOYER_1 via RELATIONSHIPS, matching real DU/Arive
+// files.
+function incomeItem(incomeType, amount, label, hasEmployer) {
   const amt = money(amount);
   if (!amt || Number(amt) === 0) return '';
   return `
-                    <CURRENT_INCOME_ITEM>
+                    <CURRENT_INCOME_ITEM SequenceNumber="1" xlink:label="${label}">
                       <CURRENT_INCOME_ITEM_DETAIL>
                         <CurrentIncomeMonthlyTotalAmount>${esc(amt)}</CurrentIncomeMonthlyTotalAmount>
-                        <EmploymentIncomeIndicator>true</EmploymentIncomeIndicator>
+                        <EmploymentIncomeIndicator>${hasEmployer ? 'true' : 'false'}</EmploymentIncomeIndicator>
                         <IncomeType>${esc(incomeType)}</IncomeType>
                       </CURRENT_INCOME_ITEM_DETAIL>
                     </CURRENT_INCOME_ITEM>`;
@@ -175,7 +219,18 @@ function buildMismoXml({ loan, form1003, fees }) {
   fees = fees || [];
 
   const liabilities = safeParseJsonArray(form1003.liabilities_json);
+  const assets = safeParseJsonArray(form1003.assets_json);
+  const hasPrimaryBorrower = !!(form1003.first_nm || form1003.last_nm);
 
+  // Tracks every xlink:from/xlink:to link needed for RELATIONSHIPS,
+  // built up as each section below is assembled (discrepancy #6).
+  const relationships = [];
+
+  // ---- COLLATERAL ----
+  // PROPERTY_DETAIL / PROPERTY_VALUATIONS intentionally not built —
+  // Jammie's schema has no columns for square footage, year built (as
+  // a structured value), appraised value detail, etc. Flagged as a
+  // known gap, not silently faked.
   const collateralXml = `
       <COLLATERALS>
         <COLLATERAL>
@@ -188,9 +243,69 @@ function buildMismoXml({ loan, form1003, fees }) {
         </COLLATERAL>
       </COLLATERALS>`;
 
+  // ---- EMPLOYER + CURRENT_INCOME_ITEMS (built first so we can assign
+  // labels and record relationships before the PARTY XML is assembled) ----
+  const hasEmployer = !!form1003.employee_or_business_nm;
+  const incomeDefs = [
+    ['Base', form1003.gross_income_monthly_base],
+    ['Overtime', form1003.gross_income_monthly_overtime],
+    ['Bonus', form1003.gross_income_monthly_bonus],
+    ['Commission', form1003.gross_income_monthly_commission],
+    ['MilitaryEntitlements', form1003.gross_income_monthly_military],
+    ['Other', form1003.gross_income_monthly_other],
+  ];
+  let incomeCounter = 0;
+  const incomeItemsXml = incomeDefs.map(([type, amt]) => {
+    const m = money(amt);
+    if (!m || Number(m) === 0) return '';
+    incomeCounter++;
+    const label = `CURRENT_INCOME_ITEM_${incomeCounter}`;
+    if (hasEmployer) {
+      relationships.push({ from: label, to: 'EMPLOYER_1', arcrole: 'CURRENT_INCOME_ITEM_IsAssociatedWith_EMPLOYER' });
+    }
+    return incomeItem(type, m, label, hasEmployer);
+  }).join('');
+
+  const employerXml = hasEmployer ? `
+                <EMPLOYERS>
+                  <EMPLOYER SequenceNumber="1" xlink:label="EMPLOYER_1">
+                    <LEGAL_ENTITY>
+                      <LEGAL_ENTITY_DETAIL>
+                        ${tag('FullName', form1003.employee_or_business_nm)}
+                      </LEGAL_ENTITY_DETAIL>
+                    </LEGAL_ENTITY>
+                    <ADDRESS>
+                      ${tag('AddressLineText', form1003.business_street)}
+                      ${tag('CityName', form1003.business_city)}
+                      ${tag('StateCode', stateCode(form1003.business_state))}
+                      <CountryCode>US</CountryCode>
+                    </ADDRESS>
+                    <EMPLOYMENT>
+                      ${tag('EmploymentPositionDescription', form1003.position_title)}
+                      ${tag('EmploymentStartDate', dateOnly(form1003.position_start_date))}
+                      <EmploymentStatusType>Current</EmploymentStatusType>
+                      <EmploymentClassificationType>Primary</EmploymentClassificationType>
+                    </EMPLOYMENT>
+                  </EMPLOYER>
+                </EMPLOYERS>` : '';
+
+  // ---- LOAN ----
+  const purpose = loanPurposeType(loan.refi_type);
+  // Discrepancy #4: build a real REFINANCE section (sibling of
+  // TERMS_OF_LOAN, matching real DU/Arive file structure) whenever the
+  // derived purpose isn't Purchase, instead of declaring a purpose with
+  // no supporting section either way.
+  const refinanceXml = purpose !== 'Purchase' ? `
+          <REFINANCE>
+            <RefinanceCashOutDeterminationType>${purpose === 'CashOutRefinance' ? 'CashOut' : 'NoCashOut'}</RefinanceCashOutDeterminationType>
+            ${tag('RefinancePrimaryPurposeType', loan.cash_out_purpose || 'LimitedCashOut')}
+          </REFINANCE>` : '';
+
+  const numericLoanId = numericLoanIdentifier(loan.loan_number, loan.id);
+
   const loanXml = `
       <LOANS>
-        <LOAN>
+        <LOAN LoanRoleType="SubjectLoan" xlink:label="LOAN_1" SequenceNumber="1">
           <AMORTIZATION>
             <AMORTIZATION_RULE>
               <AmortizationType>Fixed</AmortizationType>
@@ -200,21 +315,21 @@ function buildMismoXml({ loan, form1003, fees }) {
           </AMORTIZATION>
           <LOAN_IDENTIFIERS>
             <LOAN_IDENTIFIER>
-              ${tag('LoanIdentifier', loan.loan_number)}
+              ${tag('LoanIdentifier', numericLoanId)}
               <LoanIdentifierType>LenderLoan</LoanIdentifierType>
             </LOAN_IDENTIFIER>
-          </LOAN_IDENTIFIERS>
+          </LOAN_IDENTIFIERS>${refinanceXml}
           <TERMS_OF_LOAN>
             ${tag('BaseLoanAmount', money(loan.loan_amount))}
             <LienPriorityType>${esc(lienPriorityType(loan.lien_position))}</LienPriorityType>
-            <LoanPurposeType>${esc(loanPurposeType(loan.refi_type))}</LoanPurposeType>
+            <LoanPurposeType>${esc(purpose)}</LoanPurposeType>
             <MortgageType>${esc(mortgageType(loan.product))}</MortgageType>
             ${tag('NoteAmount', money(loan.loan_amount))}
             ${tag('NoteRatePercent', loan.rate)}
           </TERMS_OF_LOAN>
           <EXTENSION>
             <OTHER>
-              <JAMMIE_LOAN_EXTENSION xmlns="${JAMMIE_NS}">
+              <JAMMIE:JAMMIE_LOAN_EXTENSION>
                 ${tag('LoanStatus', loan.loan_status)}
                 ${tag('ClosingDate', dateOnly(loan.closing_date))}
                 ${tag('LTVRatioPercent', loan.ltv)}
@@ -236,17 +351,19 @@ function buildMismoXml({ loan, form1003, fees }) {
                 ${tag('AdjustmentsOtherCreditsAmount', money(loan.adjustments_other_credits))}
                 ${tag('LenderName', loan.lender)}
                 ${tag('ProductName', loan.product)}
-              </JAMMIE_LOAN_EXTENSION>
+                ${tag('JammieLoanNumber', loan.loan_number)}
+              </JAMMIE:JAMMIE_LOAN_EXTENSION>
             </OTHER>
           </EXTENSION>
         </LOAN>
       </LOANS>`;
 
+  // ---- PARTIES ----
   const borrowerParties = [];
 
-  if (form1003.first_nm || form1003.last_nm) {
+  if (hasPrimaryBorrower) {
     borrowerParties.push(`
-        <PARTY>
+        <PARTY SequenceNumber="1">
           <INDIVIDUAL>
             <NAME>
               ${tag('FirstName', form1003.first_nm)}
@@ -266,7 +383,7 @@ function buildMismoXml({ loan, form1003, fees }) {
             </ADDRESS>
           </ADDRESSES>
           <ROLES>
-            <ROLE>
+            <ROLE SequenceNumber="1" xlink:label="BORROWER_1">
               <BORROWER>
                 <BORROWER_DETAIL>
                   ${tag('BorrowerBirthDate', dateOnly(form1003.dob))}
@@ -274,30 +391,9 @@ function buildMismoXml({ loan, form1003, fees }) {
                   ${tag('MaritalStatusType', form1003.marital_status)}
                 </BORROWER_DETAIL>
                 <CURRENT_INCOME>
-                  <CURRENT_INCOME_ITEMS>${incomeItem('Base', form1003.gross_income_monthly_base)}${incomeItem('Overtime', form1003.gross_income_monthly_overtime)}${incomeItem('Bonus', form1003.gross_income_monthly_bonus)}${incomeItem('Commission', form1003.gross_income_monthly_commission)}${incomeItem('MilitaryEntitlements', form1003.gross_income_monthly_military)}${incomeItem('Other', form1003.gross_income_monthly_other)}
+                  <CURRENT_INCOME_ITEMS>${incomeItemsXml}
                   </CURRENT_INCOME_ITEMS>
-                </CURRENT_INCOME>${form1003.employee_or_business_nm ? `
-                <EMPLOYERS>
-                  <EMPLOYER>
-                    <LEGAL_ENTITY>
-                      <LEGAL_ENTITY_DETAIL>
-                        ${tag('FullName', form1003.employee_or_business_nm)}
-                      </LEGAL_ENTITY_DETAIL>
-                    </LEGAL_ENTITY>
-                    <ADDRESS>
-                      ${tag('AddressLineText', form1003.business_street)}
-                      ${tag('CityName', form1003.business_city)}
-                      ${tag('StateCode', stateCode(form1003.business_state))}
-                      <CountryCode>US</CountryCode>
-                    </ADDRESS>
-                    <EMPLOYMENT>
-                      ${tag('EmploymentPositionDescription', form1003.position_title)}
-                      ${tag('EmploymentStartDate', dateOnly(form1003.position_start_date))}
-                      <EmploymentStatusType>Current</EmploymentStatusType>
-                      <EmploymentClassificationType>Primary</EmploymentClassificationType>
-                    </EMPLOYMENT>
-                  </EMPLOYER>
-                </EMPLOYERS>` : ''}
+                </CURRENT_INCOME>${employerXml}
               </BORROWER>
               <ROLE_DETAIL>
                 <PartyRoleType>Borrower</PartyRoleType>
@@ -307,7 +403,7 @@ function buildMismoXml({ loan, form1003, fees }) {
           <TAXPAYER_IDENTIFIERS>
             <TAXPAYER_IDENTIFIER>
               <TaxpayerIdentifierType>SocialSecurityNumber</TaxpayerIdentifierType>
-              ${tag('TaxpayerIdentifierValue', form1003.ssn)}
+              ${tag('TaxpayerIdentifierValue', ssnDigits(form1003.ssn))}
             </TAXPAYER_IDENTIFIER>
           </TAXPAYER_IDENTIFIERS>` : ''}
         </PARTY>`);
@@ -318,7 +414,7 @@ function buildMismoXml({ loan, form1003, fees }) {
     const ln = form1003[`last_nm_borrower_${n}`];
     if (!fn && !ln) continue;
     borrowerParties.push(`
-        <PARTY>
+        <PARTY SequenceNumber="${n}">
           <INDIVIDUAL>
             <NAME>
               ${tag('FirstName', fn)}
@@ -327,7 +423,7 @@ function buildMismoXml({ loan, form1003, fees }) {
             </NAME>
           </INDIVIDUAL>
           <ROLES>
-            <ROLE>
+            <ROLE SequenceNumber="1" xlink:label="BORROWER_${n}">
               <ROLE_DETAIL>
                 <PartyRoleType>Borrower</PartyRoleType>
               </ROLE_DETAIL>
@@ -340,22 +436,71 @@ function buildMismoXml({ loan, form1003, fees }) {
       <PARTIES>${borrowerParties.join('')}
       </PARTIES>` : '';
 
-  const liabilityXml = liabilities.map(l => `
-        <LIABILITY>
+  // ---- LIABILITIES (linked to BORROWER_1 via RELATIONSHIPS — Jammie's
+  // liabilities_json doesn't track per-borrower ownership, so every
+  // liability is attributed to the primary borrower rather than guessed) ----
+  let liabCounter = 0;
+  const liabilityXml = liabilities.map(l => {
+    liabCounter++;
+    const label = `LIABILITY_${liabCounter}`;
+    if (hasPrimaryBorrower) {
+      relationships.push({ from: label, to: 'BORROWER_1', arcrole: 'LIABILITY_IsAssociatedWith_ROLE' });
+    }
+    return `
+        <LIABILITY SequenceNumber="${liabCounter}" xlink:label="${label}">
           <LIABILITY_DETAIL>
             ${tag('LiabilityMonthlyPaymentAmount', money(l.monthly_payment ?? l.payment))}
             ${tag('LiabilityType', l.type || 'Other')}
             ${tag('LiabilityUnpaidBalanceAmount', money(l.balance ?? l.unpaid_balance))}
           </LIABILITY_DETAIL>${l.creditor ? `
           <LIABILITY_HOLDER><NAME>${tag('FullName', l.creditor)}</NAME></LIABILITY_HOLDER>` : ''}
-        </LIABILITY>`).join('');
+        </LIABILITY>`;
+  }).join('');
 
   const liabilitiesXml = liabilityXml ? `
       <LIABILITIES>${liabilityXml}
       </LIABILITIES>` : '';
 
+  // ---- ASSETS (new — Jammie already captures this in assets_json, it
+  // just wasn't wired into the export before now) ----
+  let assetCounter = 0;
+  const assetXml = assets.map(a => {
+    assetCounter++;
+    const label = `ASSET_${assetCounter}`;
+    if (hasPrimaryBorrower) {
+      // ASSET_IsAssociatedWith_ROLE mirrors LIABILITY_IsAssociatedWith_ROLE
+      // (standard MISMO 3.4 arcrole naming convention) — not directly
+      // confirmed against a real sample since the comparison files
+      // didn't include an ASSETS section, but follows the same pattern
+      // MISMO uses consistently elsewhere in this file.
+      relationships.push({ from: label, to: 'BORROWER_1', arcrole: 'ASSET_IsAssociatedWith_ROLE' });
+    }
+    return `
+        <ASSET SequenceNumber="${assetCounter}" xlink:label="${label}">
+          <ASSET_DETAIL>
+            <AssetType>${esc(assetType(a.type))}</AssetType>
+            ${tag('AssetCashOrMarketValueAmount', money(a.value))}
+            ${tag('AssetAccountIdentifier', a.acct)}
+          </ASSET_DETAIL>${a.depositor ? `
+          <ASSET_HOLDER><NAME>${tag('FullName', a.depositor)}</NAME></ASSET_HOLDER>` : ''}
+        </ASSET>`;
+  }).join('');
+
+  const assetsXml = assetXml ? `
+      <ASSETS>${assetXml}
+      </ASSETS>` : '';
+
+  // ---- RELATIONSHIPS (discrepancy #6) ----
+  const relationshipsXml = relationships.length ? `
+      <RELATIONSHIPS>${relationships.map((r, i) => `
+        <RELATIONSHIP SequenceNumber="${i + 1}" xlink:from="${r.from}" xlink:to="${r.to}" xlink:arcrole="urn:fdc:mismo.org:2009:residential/${r.arcrole}"/>`).join('')}
+      </RELATIONSHIPS>` : '';
+
+  // ---- ROOT — namespaces confirmed against a real DU/Arive export
+  // (discrepancy #2), JAMMIE extension now uses its own prefix instead
+  // of redefining the default namespace (discrepancy #8) ----
   return `<?xml version="1.0"?>
-<MESSAGE MISMOReferenceModelIdentifier="3.4.032420160128" xmlns="${MISMO_NS}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<MESSAGE MISMOReferenceModelIdentifier="3.4.032420160128" xmlns="${MISMO_NS}" xmlns:DU="${DU_NS}" xmlns:ULAD="${ULAD_NS}" xmlns:xlink="${XLINK_NS}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:JAMMIE="${JAMMIE_NS}">
   <ABOUT_VERSIONS>
     <ABOUT_VERSION>
       <CreatedDatetime>${new Date().toISOString()}</CreatedDatetime>
@@ -364,7 +509,7 @@ function buildMismoXml({ loan, form1003, fees }) {
   <DEAL_SETS>
     <DEAL_SET>
       <DEALS>
-        <DEAL>${collateralXml}${liabilitiesXml}${loanXml}${partiesXml}
+        <DEAL>${collateralXml}${assetsXml}${liabilitiesXml}${loanXml}${partiesXml}${relationshipsXml}
         </DEAL>
       </DEALS>
     </DEAL_SET>
@@ -378,8 +523,11 @@ function buildMismoXml({ loan, form1003, fees }) {
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
-  removeNSPrefix: true,   // strips MISMO:/DU:/ULAD: prefixes so we can match
-                          // plain tag names regardless of the source namespace
+  removeNSPrefix: true,   // strips MISMO:/DU:/ULAD:/JAMMIE: prefixes so we
+                          // can match plain tag names regardless of the
+                          // source namespace. xlink:label/from/to attributes
+                          // are irrelevant to import (we only read element
+                          // text content), so this has no effect on parsing.
   parseTagValue: false,   // CRITICAL: keep every value as a string. The
                           // default auto-number-coercion silently strips
                           // leading zeros from SSNs, zip codes, and loan
@@ -393,12 +541,10 @@ function dig(obj, path) {
   const keys = path.split('.');
   for (let i = 0; i < keys.length; i++) {
     if (cur === undefined || cur === null) return undefined;
-    if (Array.isArray(cur)) cur = cur[0]; // only when continuing to descend past this point
+    if (Array.isArray(cur)) cur = cur[0];
     cur = cur[keys[i]];
   }
-  return cur; // do NOT collapse a trailing array — callers that expect
-              // repeated elements (PARTY, LIABILITY, CURRENT_INCOME_ITEM)
-              // explicitly handle array-vs-single themselves
+  return cur;
 }
 
 function num(v) {
@@ -431,6 +577,14 @@ function parseMismoXml(xmlString) {
     if (mtype) loan.product = reverseMortgageType(mtype) || undefined;
     const lien = dig(loanNode, 'TERMS_OF_LOAN.LienPriorityType');
     if (lien) loan.lien_position = lien === 'SecondLien' ? 'Second Lien' : 'First Lien';
+    const purposeType = dig(loanNode, 'TERMS_OF_LOAN.LoanPurposeType');
+    if (purposeType === 'CashOutRefinance' || purposeType === 'NoCashOutRefinance') {
+      loan.refi_type = purposeType === 'CashOutRefinance' ? 'Cash-Out Refinance' : 'Refinance';
+    } else if (purposeType === 'Purchase') {
+      loan.refi_type = null;
+    }
+    const refiPurpose = dig(loanNode, 'REFINANCE.RefinancePrimaryPurposeType');
+    if (refiPurpose) loan.cash_out_purpose = refiPurpose;
   }
   if (collateral) {
     loan.subject_property = dig(collateral, 'ADDRESS.AddressLineText') || undefined;
@@ -479,6 +633,8 @@ function parseMismoXml(xmlString) {
     if (dob) form1003.dob = dateOnly(dob);
     const marital = dig(primary, 'ROLES.ROLE.BORROWER.BORROWER_DETAIL.MaritalStatusType');
     if (marital) form1003.marital_status = marital;
+    // Accepts SSN with or without hyphens from the source file — always
+    // normalized to Jammie's own XXX-XX-XXXX display format.
     const ssn = dig(primary, 'TAXPAYER_IDENTIFIERS.TAXPAYER_IDENTIFIER.TaxpayerIdentifierValue');
     if (ssn) {
       const digits = String(ssn).replace(/\D/g, '');
@@ -526,7 +682,6 @@ function parseMismoXml(xmlString) {
     if (ln) form1003[`last_nm_borrower_${n}`] = ln;
   }
   form1003.num_borrowers = borrowerParties.length || undefined;
-  Object.keys(form1003).forEach(k => (form1003[k] === undefined || form1003[k] === null) && delete form1003[k]);
 
   let liabNodes = dig(deal, 'LIABILITIES.LIABILITY');
   if (liabNodes && !Array.isArray(liabNodes)) liabNodes = [liabNodes];
@@ -538,6 +693,32 @@ function parseMismoXml(xmlString) {
       creditor: dig(l, 'LIABILITY_HOLDER.NAME.FullName') || null,
     })));
   }
+
+  // ASSETS — new, mirrors the LIABILITIES parsing above. Maps back to
+  // Jammie's own asset category labels so the Financial Info tab
+  // recognizes them (rather than leaving MISMO's AssetType enum values
+  // sitting unrecognized in the UI).
+  const ASSET_TYPE_TO_JAMMIE = {
+    CheckingAccount: 'Checking Account',
+    SavingsAccount: 'Savings Account',
+    Retirement: 'Retirement (401k/IRA)',
+    Stock: 'Stocks / Bonds / Mutual Funds',
+  };
+  let assetNodes = dig(deal, 'ASSETS.ASSET');
+  if (assetNodes && !Array.isArray(assetNodes)) assetNodes = [assetNodes];
+  if (assetNodes && assetNodes.length) {
+    form1003.assets_json = JSON.stringify(assetNodes.map(a => {
+      const mismoType = dig(a, 'ASSET_DETAIL.AssetType');
+      return {
+        type: ASSET_TYPE_TO_JAMMIE[mismoType] || 'Other Assets',
+        value: num(dig(a, 'ASSET_DETAIL.AssetCashOrMarketValueAmount')),
+        acct: dig(a, 'ASSET_DETAIL.AssetAccountIdentifier') || '',
+        depositor: dig(a, 'ASSET_HOLDER.NAME.FullName') || '',
+      };
+    }));
+  }
+
+  Object.keys(form1003).forEach(k => (form1003[k] === undefined || form1003[k] === null) && delete form1003[k]);
 
   return { loan, form1003 };
 }
