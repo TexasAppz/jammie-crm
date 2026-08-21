@@ -1333,9 +1333,9 @@ function Section4Liabilities({ data, setData }) {
   return <>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Liability Type</th><th>Creditor</th><th>Account #</th><th>Balance</th><th>Payment</th><th>DTI</th><th></th></tr></thead>
+        <thead><tr><th>Liability Type</th><th>Creditor</th><th>Account #</th><th>Balance</th><th>Payment</th><th>DTI</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {(data.liabilities||[]).length===0 && <tr><td colSpan={7}><div className="empty-state" style={{padding:'30px 20px'}}><div className="empty-icon" style={{fontSize:28}}>📋</div><div className="empty-title">No liabilities added</div></div></td></tr>}
+          {(data.liabilities||[]).length===0 && <tr><td colSpan={8}><div className="empty-state" style={{padding:'30px 20px'}}><div className="empty-icon" style={{fontSize:28}}>📋</div><div className="empty-title">No liabilities added</div></div></td></tr>}
           {(data.liabilities||[]).map((l,idx)=>(
             <tr key={l.id}>
               <td><FSelect value={l.type} onChange={e=>upd(idx,'type',e.target.value)} style={{minWidth:140}}><option>Installment Loan</option><option>Revolving</option><option>Open Account</option><option>Mortgage</option><option>Auto Loan</option><option>Student Loan</option><option>Child Support</option><option>Alimony</option><option>Other</option></FSelect></td>
@@ -1344,6 +1344,18 @@ function Section4Liabilities({ data, setData }) {
               <td><DollarInput value={l.balance} onChange={e=>upd(idx,'balance',e.target.value)}/></td>
               <td><DollarInput value={l.payment} onChange={e=>upd(idx,'payment',e.target.value)}/></td>
               <td><FSelect value={l.dti} onChange={e=>upd(idx,'dti',e.target.value)} style={{minWidth:100}}><option>Include</option><option>Exclude</option><option>Pay Off</option></FSelect></td>
+              <td>
+                {/* PAID OFF badge — mirrors Arive. Click to toggle, since
+                    MISMO's LiabilityPayoffStatusIndicator is imported but
+                    the user may need to adjust it. */}
+                <span onClick={()=>upd(idx,'paid_off',!l.paid_off)}
+                  title={l.paid_off ? 'Marked paid off — click to clear' : 'Click to mark paid off'}
+                  style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:3,cursor:'pointer',whiteSpace:'nowrap',
+                    background:l.paid_off?'#f3e8ff':'transparent', color:l.paid_off?'#7e22ce':'#cbd5e1',
+                    border:`1px solid ${l.paid_off?'#d8b4fe':'transparent'}`}}>
+                  PAID OFF
+                </span>
+              </td>
               <td><button className="btn btn-danger btn-sm" onClick={()=>setData(p=>({...p,liabilities:p.liabilities.filter((_,i)=>i!==idx)}))}>✕</button></td>
             </tr>
           ))}
@@ -1695,7 +1707,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   ? loanRow.subject_property.split(',')[1]?.trim()?.split(' ')[0] : '',
       spState:  loanRow.subject_property?.includes(',')
                   ? loanRow.subject_property.split(',')[1]?.trim()?.split(' ')[1] : '',
-      mortgagePurpose: loanRow.purpose || 'Purchase Home',
+      // Derive from refi_type, which is what a MISMO import actually
+      // populates — `purpose` is a separate legacy column the import never
+      // touches, so reading it left every imported refinance showing as a
+      // Purchase. Any non-empty refi_type means this is a refinance.
+      mortgagePurpose: loanRow.refi_type ? 'Refinance' : (loanRow.purpose || 'Purchase Home'),
+      refiType:        loanRow.refi_type || '',
       mortgageType: loanRow.product?.includes('FHA')    ? 'FHA'
                   : loanRow.product?.includes('VA')     ? 'VA'
                   : loanRow.product?.includes('NON-QM') ? 'NON-QM'
@@ -1774,7 +1791,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 bonuses:     existing.gross_income_monthly_bonus      || '',
                 commission:  existing.gross_income_monthly_commission || '',
                 otherW2:     existing.gross_income_monthly_other      || '',
-                currentEmp:true, primary:true, selfEmp:false, familyRelated:false,
+                currentEmp:true, primary:true,
+                selfEmp: existing.self_employed === 1 || existing.self_employed === true,
+                familyRelated:false,
                 addr1:'',city:'',state:'',zip:'',country:'United States',
                 phone:'',verPhone:'',verEmail:'',endDate:'',tips:'',seasonal:'',
               }];
@@ -1843,6 +1862,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           down_payment:          parseFloat(formData.downPayment)         || null,
           existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
           refinance_program:     formData.refinanceProgram || null,
+          refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
           pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
@@ -1969,6 +1989,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           down_payment:          parseFloat(formData.downPayment)         || null,
           existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
           refinance_program:     formData.refinanceProgram || null,
+          refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
           pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
@@ -2255,6 +2276,13 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       {/* ── Top bar ── */}
       <div className="f1003-topbar">
         <div>
+          {/* Transaction type badge — Arive labels every loan Purchase or
+              Refinance prominently; this reads the same formData field the
+              Loan Info toggle uses, so it always stays in sync. */}
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:'.08em',textTransform:'uppercase',
+            color: formData.mortgagePurpose==='Refinance' ? '#fbbf24' : '#67e8f9', marginBottom:2}}>
+            {formData.mortgagePurpose==='Refinance' ? 'Refinance' : 'Purchase'}
+          </div>
           <div className="f1003-loan-name">📋 {borrowers[0]?.firstName && borrowers[0]?.lastName ? `${borrowers[0].firstName} ${borrowers[0].lastName}` : loan.borrower || 'New Application'}</div>
           <div className="f1003-loan-meta">Loan #{loan.loan_number} · {loan.subject_property} · {loan.loan_status}</div>
         </div>
@@ -2491,20 +2519,31 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       </div>
                     </div>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
+                  {/* Row 2 — alignItems:'end' plus a fixed minHeight on every
+                      label keeps all four inputs on the same baseline even
+                      when a label wraps to two lines (Existing Liens Amount
+                      was previously pushing its input down out of line). */}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:16,marginBottom:16,alignItems:'end'}}>
                     <div className="form-group">
-                      <label className="form-label">Refinance Type *</label>
+                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Refinance Type *</label>
                       <select className="form-select" value={formData.refiType||''} onChange={e=>setFormData(p=>({...p,refiType:e.target.value}))}>
                         <option value="">- Select -</option>
                         <option>Rate &amp; Term</option><option>Limited Cash-Out</option><option>Cash-Out</option>
                       </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Existing Liens Amount</label>
+                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Cash-Out Purpose</label>
+                      <select className="form-select" value={formData.cashOutPurpose||''} onChange={e=>setFormData(p=>({...p,cashOutPurpose:e.target.value}))}>
+                        <option value="">- Select -</option>
+                        <option>DebtConsolidation</option><option>HomeImprovement</option><option>Other</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Existing Liens Amount</label>
                       <div className="dollar-wrap"><input className="form-input" type="number" value={formData.existingLiensAmount||''} onChange={e=>setFormData(p=>({...p,existingLiensAmount:e.target.value}))} placeholder="0"/></div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Refinance Program</label>
+                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Refinance Program</label>
                       <select className="form-select" value={formData.refinanceProgram||'Full Doc'} onChange={e=>setFormData(p=>({...p,refinanceProgram:e.target.value}))}>
                         <option>Full Doc</option><option>Streamline</option><option>IRRRL</option><option>Other</option>
                       </select>
@@ -2856,7 +2895,8 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 ${(formData.liabilities||[]).filter(l=>l.dti==='Include').reduce((a,x)=>a+(parseFloat(x.payment)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
               </span>
               <span style={{fontSize:13,color:'var(--text-3)',marginLeft:12,fontWeight:400}}>
-                Paid Off: $0.00 · Total: ${(formData.liabilities||[]).reduce((a,x)=>a+(parseFloat(x.balance)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+                Paid Off: ${(formData.liabilities||[]).filter(l=>l.paid_off).reduce((a,x)=>a+(parseFloat(x.balance)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+                {' · '}Total: ${(formData.liabilities||[]).reduce((a,x)=>a+(parseFloat(x.balance)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
               </span>
             </div>
             <Section4Liabilities data={formData} setData={setFormData}/>

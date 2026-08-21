@@ -124,12 +124,18 @@ function reverseMortgageType(mismoType) {
   return m[mismoType] || null;
 }
 
+// Maps Jammie's refi_type dropdown labels to the MISMO purpose/cash-out
+// pair that Arive actually emits: LoanPurposeType is plain "Refinance",
+// with the cash-out detail carried separately in the REFINANCE section.
 function loanPurposeType(refiType) {
-  if (!refiType) return 'Purchase';
-  const r = refiType.toLowerCase();
-  if (r.includes('cash')) return 'CashOutRefinance';
-  if (r.includes('refi')) return 'NoCashOutRefinance';
-  return 'Purchase';
+  return refiType ? 'Refinance' : 'Purchase';
+}
+
+function cashOutDeterminationType(refiType) {
+  const r = (refiType || '').toLowerCase();
+  if (r.includes('limited')) return 'LimitedCashOut';
+  if (r.includes('cash')) return 'CashOut';   // "Cash-Out"
+  return 'NoCashOut';                          // "Rate & Term"
 }
 
 // Jammie's address_state / business_state columns are free text — the
@@ -314,7 +320,7 @@ function buildMismoXml({ loan, form1003, fees }) {
   // no supporting section either way.
   const refinanceXml = purpose !== 'Purchase' ? `
           <REFINANCE>
-            <RefinanceCashOutDeterminationType>${purpose === 'CashOutRefinance' ? 'CashOut' : 'NoCashOut'}</RefinanceCashOutDeterminationType>
+            <RefinanceCashOutDeterminationType>${esc(cashOutDeterminationType(loan.refi_type))}</RefinanceCashOutDeterminationType>
             ${tag('RefinancePrimaryPurposeType', loan.cash_out_purpose || 'LimitedCashOut')}
             ${tag('RefinanceExistingLiensAmount', money(loan.existing_liens_amount))}
             ${tag('RefinanceProgramIdentifier', loan.refinance_program)}
@@ -621,8 +627,20 @@ function parseMismoXml(xmlString) {
     const lien = dig(loanNode, 'TERMS_OF_LOAN.LienPriorityType');
     if (lien) loan.lien_position = lien === 'SecondLien' ? 'Second Lien' : 'First Lien';
     const purposeType = dig(loanNode, 'TERMS_OF_LOAN.LoanPurposeType');
-    if (purposeType === 'CashOutRefinance' || purposeType === 'NoCashOutRefinance') {
-      loan.refi_type = purposeType === 'CashOutRefinance' ? 'Cash-Out Refinance' : 'Refinance';
+    const cashOutDet = dig(loanNode, 'REFINANCE.RefinanceCashOutDeterminationType');
+    // Real Arive exports send LoanPurposeType="Refinance" (plain) and put the
+    // cash-out detail in REFINANCE/RefinanceCashOutDeterminationType. Older
+    // code only recognized the combined "CashOutRefinance"/"NoCashOutRefinance"
+    // values, which Arive never emits — so Refinance Type imported blank.
+    // Values map to Jammie's own dropdown labels (Arive uses the same three).
+    if (purposeType === 'Refinance' || purposeType === 'CashOutRefinance' || purposeType === 'NoCashOutRefinance') {
+      if (purposeType === 'CashOutRefinance' || cashOutDet === 'CashOut') {
+        loan.refi_type = 'Cash-Out';
+      } else if (cashOutDet === 'LimitedCashOut') {
+        loan.refi_type = 'Limited Cash-Out';
+      } else {
+        loan.refi_type = 'Rate & Term';
+      }
     } else if (purposeType === 'Purchase') {
       loan.refi_type = null;
     }
@@ -735,6 +753,7 @@ function parseMismoXml(xmlString) {
 
     let items = dig(primary, 'ROLES.ROLE.BORROWER.CURRENT_INCOME.CURRENT_INCOME_ITEMS.CURRENT_INCOME_ITEM');
     if (items && !Array.isArray(items)) items = [items];
+    let sawIncomeItem = false;
     (items || []).forEach(item => {
       const t = dig(item, 'CURRENT_INCOME_ITEM_DETAIL.IncomeType');
       const amt = num(dig(item, 'CURRENT_INCOME_ITEM_DETAIL.CurrentIncomeMonthlyTotalAmount'));
@@ -747,8 +766,24 @@ function parseMismoXml(xmlString) {
         MilitaryEntitlements: 'gross_income_monthly_military',
         Other: 'gross_income_monthly_other',
       };
-      if (map[t]) form1003[map[t]] = amt;
+      if (map[t]) { form1003[map[t]] = amt; sawIncomeItem = true; }
     });
+
+    // Self-employed borrowers: Arive emits NO CURRENT_INCOME_ITEM elements
+    // at all — the monthly figure lives in EMPLOYMENT/EmploymentMonthlyIncomeAmount
+    // instead. Without this, a self-employed borrower imports with $0 income.
+    // Only used as a fallback so we never double-count a W-2 borrower who
+    // has both.
+    const selfEmpIndicator = dig(primary, 'ROLES.ROLE.BORROWER.EMPLOYERS.EMPLOYER.EMPLOYMENT.EmploymentBorrowerSelfEmployedIndicator');
+    const employmentMonthly = num(dig(primary, 'ROLES.ROLE.BORROWER.EMPLOYERS.EMPLOYER.EMPLOYMENT.EmploymentMonthlyIncomeAmount'));
+    if (!sawIncomeItem && employmentMonthly !== null) {
+      form1003.gross_income_monthly_base = employmentMonthly;
+    }
+    if (selfEmpIndicator !== undefined && selfEmpIndicator !== null) {
+      form1003.self_employed = String(selfEmpIndicator) === 'true' ? 1 : 0;
+    }
+    const ownershipInterest = dig(primary, 'ROLES.ROLE.BORROWER.EMPLOYERS.EMPLOYER.EMPLOYMENT.OwnershipInterestType');
+    if (ownershipInterest) form1003.ownership_interest = ownershipInterest;
   }
 
   for (let i = 0; i < 3; i++) {
@@ -765,12 +800,31 @@ function parseMismoXml(xmlString) {
   let liabNodes = dig(deal, 'LIABILITIES.LIABILITY');
   if (liabNodes && !Array.isArray(liabNodes)) liabNodes = [liabNodes];
   if (liabNodes && liabNodes.length) {
-    form1003.liabilities_json = JSON.stringify(liabNodes.map(l => ({
+    const parsedLiabs = liabNodes.map(l => ({
       type: dig(l, 'LIABILITY_DETAIL.LiabilityType') || 'Other',
       balance: num(dig(l, 'LIABILITY_DETAIL.LiabilityUnpaidBalanceAmount')),
+      // Arive's per-liability monthly payment — previously unmapped, which
+      // is why every liability imported with a $0.00 payment.
+      payment: num(dig(l, 'LIABILITY_DETAIL.LiabilityMonthlyPaymentAmount')),
       monthly_payment: num(dig(l, 'LIABILITY_DETAIL.LiabilityMonthlyPaymentAmount')),
+      acct: dig(l, 'LIABILITY_DETAIL.LiabilityAccountIdentifier') || '',
+      // Drives Arive's "PAID OFF" badge
+      paid_off: String(dig(l, 'LIABILITY_DETAIL.LiabilityPayoffStatusIndicator')) === 'true',
+      // Excluded liabilities don't count toward DTI
+      dti: String(dig(l, 'LIABILITY_DETAIL.LiabilityExclusionIndicator')) === 'true' ? 'Exclude' : 'Include',
       creditor: dig(l, 'LIABILITY_HOLDER.NAME.FullName') || null,
-    })));
+    }));
+    form1003.liabilities_json = JSON.stringify(parsedLiabs);
+
+    // Existing Liens Amount isn't its own MISMO element — derive it from the
+    // subject property's mortgage liability balance (per product decision),
+    // falling back to OwnedPropertyLienUPBAmount when present.
+    if (loan.refi_type) {
+      const mortgage = parsedLiabs.find(l => /mortgage/i.test(l.type || ''));
+      const ownedLienUPB = num(dig(deal, 'ASSETS.ASSET.OWNED_PROPERTY.OWNED_PROPERTY_DETAIL.OwnedPropertyLienUPBAmount'));
+      const derived = (mortgage && mortgage.balance) ?? ownedLienUPB;
+      if (derived != null) loan.existing_liens_amount = derived;
+    }
   }
 
   // ASSETS — new, mirrors the LIABILITIES parsing above. Maps back to
@@ -796,6 +850,40 @@ function parseMismoXml(xmlString) {
       };
     }));
   }
+
+  // ---- REAL ESTATE OWNED ----
+  // OWNED_PROPERTY is nested inside ASSETS/ASSET (verified against a real
+  // Arive export — it is NOT under the borrower's residences, which is
+  // where MISMO docs might lead you to look).
+  let assetNodesForReo = dig(deal, 'ASSETS.ASSET');
+  if (assetNodesForReo && !Array.isArray(assetNodesForReo)) assetNodesForReo = [assetNodesForReo];
+  const reos = [];
+  (assetNodesForReo || []).forEach((a, i) => {
+    let owned = dig(a, 'OWNED_PROPERTY');
+    if (!owned) return;
+    if (!Array.isArray(owned)) owned = [owned];
+    owned.forEach((o, j) => {
+      const addr = dig(o, 'PROPERTY.ADDRESS.AddressLineText');
+      const value = num(dig(o, 'PROPERTY.PROPERTY_DETAIL.PropertyEstimatedValueAmount'));
+      if (!addr && value === null) return;
+      reos.push({
+        id: `reo_${i}_${j}`,
+        isSubject: String(dig(o, 'OWNED_PROPERTY_DETAIL.OwnedPropertySubjectIndicator')) === 'true',
+        addr1: addr || '',
+        city: dig(o, 'PROPERTY.ADDRESS.CityName') || '',
+        state: stateNameFromCode(dig(o, 'PROPERTY.ADDRESS.StateCode')) || '',
+        zip: dig(o, 'PROPERTY.ADDRESS.PostalCode') || '',
+        occupancy: dig(o, 'PROPERTY.PROPERTY_DETAIL.PropertyUsageType') === 'PrimaryResidence'
+          ? 'Primary Residence'
+          : (dig(o, 'PROPERTY.PROPERTY_DETAIL.PropertyUsageType') || ''),
+        marketValue: value,
+        propType: '',
+        status: dig(o, 'OWNED_PROPERTY_DETAIL.OwnedPropertyDispositionStatusType') || '',
+        lienAmount: num(dig(o, 'OWNED_PROPERTY_DETAIL.OwnedPropertyLienUPBAmount')),
+      });
+    });
+  });
+  if (reos.length) form1003.reos_json = JSON.stringify(reos);
 
   Object.keys(form1003).forEach(k => (form1003[k] === undefined || form1003[k] === null) && delete form1003[k]);
 
