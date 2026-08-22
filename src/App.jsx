@@ -1082,8 +1082,44 @@ function FField({ label, req, children, style }) {
     {children}
   </div>;
 }
+// Formats a numeric value with thousands separators for display.
+// Returns '' for empty/invalid so placeholders still show through.
+function fmtThousands(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  // Preserve up to 2 decimals, but don't force ".00" onto whole numbers
+  // the user typed as integers.
+  const hasDecimals = String(v).includes('.');
+  return n.toLocaleString('en-US', {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function DollarInput({ value, onChange, placeholder='0.00', style }) {
-  return <div className="dollar-wrap"><input type="number" value={value||''} onChange={onChange} placeholder={placeholder} className="form-input" style={{paddingLeft:20,...style}} onFocus={e=>{e.target.style.borderColor='#2563EB';e.target.style.boxShadow='0 0 0 3px rgba(37,99,235,.1)'}} onBlur={e=>{e.target.style.borderColor='';e.target.style.boxShadow=''}}/></div>;
+  // Display-only comma formatting: while focused we render a real
+  // type="number" input so typing/stepping behaves normally; when blurred
+  // we swap to a text input showing the comma-formatted value. This avoids
+  // fighting the cursor position that live-formatting causes.
+  const [focused, setFocused] = useState(false);
+  const common = {
+    placeholder,
+    className: 'form-input',
+    style: { paddingLeft: 20, ...style },
+  };
+  if (focused) {
+    return <div className="dollar-wrap">
+      <input {...common} type="number" value={value ?? ''} autoFocus
+        onChange={onChange}
+        onFocus={e=>{e.target.style.borderColor='#2563EB';e.target.style.boxShadow='0 0 0 3px rgba(37,99,235,.1)'}}
+        onBlur={e=>{setFocused(false);e.target.style.borderColor='';e.target.style.boxShadow=''}}/>
+    </div>;
+  }
+  return <div className="dollar-wrap">
+    <input {...common} type="text" readOnly value={fmtThousands(value)}
+      onFocus={()=>setFocused(true)}/>
+  </div>;
 }
 function YNRow({ label, name, value, onChange }) {
   return <div className="yn-row">
@@ -1175,8 +1211,9 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
       <FField label="Present Address Same As"><FSelect value={b.addrSameAs} onChange={e=>upd('addrSameAs',e.target.value)}><option value="">Please Select</option><option>Borrower</option><option>Co-Borrower</option></FSelect></FField>
     </div>
 
-    <div style={{marginBottom:14,maxWidth:340}}>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14,maxWidth:700}}>
       <FField label="Email Address"><FInput type="email" value={b.email||''} onChange={e=>upd('email',e.target.value)} placeholder="name@example.com"/></FField>
+      <FField label="Cell Phone"><FInput type="tel" value={b.cellPhone||''} onChange={e=>upd('cellPhone',e.target.value)} placeholder="(555) 555-5555"/></FField>
     </div>
 
     <div className="form-grid" style={{marginBottom:20}}>
@@ -1641,7 +1678,8 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     salesPrice:'', appraisedVal:'', downPayment:'', baseLoan:'', financedFees:'', creditScore:'',
     existingLiensAmount:'', refinanceProgram:'Full Doc', pmt_first_mortgage:'',
     propType:'Single Family (1-4 Units)', occupancy:'Primary Residence', attachType:'Detached',
-    spAddr1:'', spUnit:'', spCity:'', spState:'', spZip:'', spYearBuilt:'',
+    spAddr1:'', spUnit:'', spCity:'', spState:'', spZip:'', spCounty:'', spYearBuilt:'', yearAcquired:'',
+    mannerTitle:'', titleHeldIn:'', propertyRights:'Fee Simple',
     titleName:'', mannerHeld:'', propRights:'Fee Simple',
     rentPres:'', mortPres:'', otherPres:'', hazPres:'', taxPres:'', miPres:'', hoaPres:'', floodPres:'', otherBPres:'',
     mortProp:'', otherProp:'', hazProp:'', taxProp:'', miProp:'', hoaProp:'', floodProp:'', otherBProp:'',
@@ -1744,6 +1782,8 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             ssn:           existing.ssn             || '',
             dob:           existing.dob             ? existing.dob.split('T')[0] : '',
             citizenship:   existing.citizenship     || 'us_citizen',
+            email:         existing.email           || '',
+            cellPhone:     existing.cell_phone      || '',
             maritalStatus: existing.marital_status  || '',
             numDeps:       existing.num_dependents  || '0',
             presentAddr1:  existing.address_street  || '',
@@ -1793,11 +1833,36 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             return {
               ...p,
               rate:        existing.rate || p.rate || '',
-              spAddr1:     existing.address_street && !p.spAddr1 ? existing.address_street : p.spAddr1,
+              // ── Subject property (real columns as of migration 07) ──
+              spAddr1:     existing.sp_addr1 || (existing.address_street && !p.spAddr1 ? existing.address_street : p.spAddr1),
+              spUnit:      existing.sp_unit   || p.spUnit,
+              spCity:      existing.sp_city   || p.spCity,
+              spState:     existing.sp_state  || p.spState,
+              spZip:       existing.sp_zip    || p.spZip,
+              spCounty:    existing.sp_county || p.spCounty || '',
+              propType:        existing.prop_type       || p.propType,
+              attachType:      existing.attachment_type || p.attachType,
+              occupancy:       existing.occupancy       || p.occupancy,
+              spYearBuilt:     existing.year_built      || p.spYearBuilt || '',
+              yearAcquired:    existing.year_acquired   || p.yearAcquired || '',
+              // These were being SAVED but never read back until now
+              numUnits:            existing.num_units           ?? p.numUnits,
+              constructionMethod:  existing.construction_method || p.constructionMethod,
+              acreage:             existing.acreage             || p.acreage,
+              origCost:            existing.orig_cost           || p.origCost,
+              // ── Title info ──
+              mannerTitle:     existing.manner_title    || p.mannerTitle || '',
+              titleHeldIn:     existing.title_held_in   || p.titleHeldIn || '',
+              propertyRights:  existing.property_rights || p.propertyRights || 'Fee Simple',
+              trustInfo:       existing.trust_info      || p.trustInfo,
+              vestingRead:     existing.vesting_read    || p.vestingRead,
+              // ── Financial arrays ──
               incomes:     incomes     || p.incomes,
               assets:      assets      || p.assets,
               liabilities: liabilities || p.liabilities,
               reos:        reos        || p.reos,
+              declarations:  parseArr(existing.declarations_json)  || p.declarations,
+              govtMonitoring: parseArr(existing.demographics_json) || p.govtMonitoring,
             };
           });
         }
@@ -1921,9 +1986,28 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         construction_method:  formData.constructionMethod  || null,
         acreage:              parseFloat(formData.acreage)  || null,
         orig_cost:            parseFloat(formData.origCost) || null,
+        // Subject property address + detail (migration 07)
+        sp_addr1:         formData.spAddr1     || null,
+        sp_unit:          formData.spUnit      || null,
+        sp_city:          formData.spCity      || null,
+        sp_state:         formData.spState     || null,
+        sp_zip:           formData.spZip       || null,
+        sp_county:        formData.spCounty    || null,
+        prop_type:        formData.propType    || null,
+        attachment_type:  formData.attachType  || null,
+        occupancy:        formData.occupancy   || null,
+        year_built:       parseInt(formData.spYearBuilt)  || null,
+        year_acquired:    parseInt(formData.yearAcquired) || null,
+        cell_phone:       borrowers[0]?.cellPhone || null,
         // Title Info (new fields)
+        manner_title:     formData.mannerTitle    || null,
+        title_held_in:    formData.titleHeldIn    || null,
+        property_rights:  formData.propertyRights || null,
         trust_info:           formData.trustInfo    || null,
         vesting_read:         formData.vestingRead  || null,
+        // Declarations + Demographics (JSON, like incomes/liabilities/reos)
+        declarations_json:  JSON.stringify(formData.declarations   || []),
+        demographics_json:  JSON.stringify(formData.govtMonitoring || []),
         // Loan Info (new fields)
         lien_position:        formData.lienPosition || 'First Lien',
         refi_type:            formData.refiType     || null,
@@ -2027,6 +2111,23 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           // New fields
           num_units:           parseInt(formData.numUnits)||1,
           construction_method: formData.constructionMethod||null,
+          sp_addr1:        formData.spAddr1     || null,
+          sp_unit:         formData.spUnit      || null,
+          sp_city:         formData.spCity      || null,
+          sp_state:        formData.spState     || null,
+          sp_zip:          formData.spZip       || null,
+          sp_county:       formData.spCounty    || null,
+          prop_type:       formData.propType    || null,
+          attachment_type: formData.attachType  || null,
+          occupancy:       formData.occupancy   || null,
+          year_built:      parseInt(formData.spYearBuilt)  || null,
+          year_acquired:   parseInt(formData.yearAcquired) || null,
+          cell_phone:      borrowers[0]?.cellPhone || null,
+          manner_title:    formData.mannerTitle    || null,
+          title_held_in:   formData.titleHeldIn    || null,
+          property_rights: formData.propertyRights || null,
+          declarations_json: JSON.stringify(formData.declarations   || []),
+          demographics_json: JSON.stringify(formData.govtMonitoring || []),
           acreage:             parseFloat(formData.acreage)||null,
           orig_cost:           parseFloat(formData.origCost)||null,
           trust_info:          formData.trustInfo||null,
@@ -2719,7 +2820,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
                   <div className="form-group"><label className="form-label">ZIP Code</label><input className="form-input" value={formData.spZip||''} onChange={e=>setFormData(p=>({...p,spZip:e.target.value}))}/></div>
+                  <div className="form-group"><label className="form-label">County</label><input className="form-input" value={formData.spCounty||''} onChange={e=>setFormData(p=>({...p,spCounty:e.target.value}))} placeholder="e.g. Cherokee County"/></div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
                   <div className="form-group"><label className="form-label">Year Built</label><input className="form-input" type="number" value={formData.spYearBuilt||''} onChange={e=>setFormData(p=>({...p,spYearBuilt:e.target.value}))} placeholder="YYYY"/></div>
+                  <div className="form-group"><label className="form-label">Year Acquired</label><input className="form-input" type="number" value={formData.yearAcquired||''} onChange={e=>setFormData(p=>({...p,yearAcquired:e.target.value}))} placeholder="YYYY"/></div>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
                   <div className="form-group"><label className="form-label">Property Type *</label>
@@ -2740,11 +2845,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   <div style={{display:'flex',gap:0}}>
                     {['Primary Residence','Second Home','Investment'].map((o,i)=>(
                       <button key={o} onClick={()=>setFormData(p=>({...p,occupancy:o}))}
-                        style={{padding:'10px 16px',fontSize:14,fontWeight:500,border:'1px solid var(--border)',
+                        style={{padding:'10px 16px',fontSize:13,fontWeight:500,border:'1px solid var(--border)',
                           background:formData.occupancy===o?'var(--accent)':'#fff',
                           color:formData.occupancy===o?'#fff':'var(--text-2)',
                           borderRight:i<2?'none':'1px solid var(--border)',
-                          borderRadius:i===0?'8px 0 0 8px':i===2?'0 8px 8px 0':'0',cursor:'pointer',fontSize:13}}>
+                          borderRadius:i===0?'8px 0 0 8px':i===2?'0 8px 8px 0':'0',cursor:'pointer'}}>
                         {o}
                       </button>
                     ))}
@@ -2771,10 +2876,15 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:20}}>
               <div className="form-group">
                 <label className="form-label">Manner in which Title will be held</label>
-                <select className="form-select" value={formData.mannerHeld||''} onChange={e=>setFormData(p=>({...p,mannerHeld:e.target.value}))}>
-                  <option value="">Select</option>
-                  <option>Single Man/Woman</option><option>Married Man/Woman</option>
-                  <option>Joint Tenants</option><option>Tenants in Common</option><option>Community Property</option>
+                <select className="form-select" value={formData.mannerTitle||''} onChange={e=>setFormData(p=>({...p,mannerTitle:e.target.value}))}>
+                  <option value="">- Select -</option>
+                  <option>Sole Ownership</option>
+                  <option>Joint Tenants With Right Of Survivorship</option>
+                  <option>Community Property With Right Of Survivorship</option>
+                  <option>Life Estate</option>
+                  <option>Tenants By The Entirety</option>
+                  <option>Tenants In Common</option>
+                  <option>Other</option>
                 </select>
               </div>
               <div className="form-group">
@@ -2785,11 +2895,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Title to the property will be held in</label>
-                <input className="form-input" value={formData.titleName||''} onChange={e=>setFormData(p=>({...p,titleName:e.target.value}))} placeholder="Borrower name(s)"/>
+                <input className="form-input" value={formData.titleHeldIn||''} onChange={e=>setFormData(p=>({...p,titleHeldIn:e.target.value}))} placeholder="Borrower name(s)"/>
               </div>
               <div className="form-group">
                 <label className="form-label">Property Rights</label>
-                <select className="form-select" value={formData.propRights||'Fee Simple'} onChange={e=>setFormData(p=>({...p,propRights:e.target.value}))}>
+                <select className="form-select" value={formData.propertyRights||'Fee Simple'} onChange={e=>setFormData(p=>({...p,propertyRights:e.target.value}))}>
                   <option>Fee Simple</option><option>Leasehold</option>
                 </select>
               </div>

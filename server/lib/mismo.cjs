@@ -651,6 +651,9 @@ function parseMismoXml(xmlString) {
     const refiProgram = dig(loanNode, 'REFINANCE.RefinanceProgramIdentifier');
     if (refiProgram) loan.refinance_program = refiProgram;
   }
+  // Collected here, applied to form1003 further down (form1003 isn't
+  // declared yet at this point in the function).
+  const propertyFields = {};
   if (collateral) {
     loan.subject_property = dig(collateral, 'ADDRESS.AddressLineText') || undefined;
     // Purchase price and appraised value are DISTINCT values in real Arive
@@ -662,6 +665,58 @@ function parseMismoXml(xmlString) {
       dig(collateral, 'PROPERTY_VALUATIONS.PROPERTY_VALUATION.PROPERTY_VALUATION_DETAIL.PropertyValuationAmount')
       ?? dig(collateral, 'PROPERTY_DETAIL.PropertyEstimatedValueAmount')
     );
+
+    // PropertyExistingLienAmount is the real MISMO field for this and
+    // matches what Arive displays exactly ($193,999). Previously this was
+    // derived from the mortgage liability balance ($193,626), which was
+    // close but not the same number. Overrides the derived value below.
+    const propExistingLien = num(dig(collateral, 'PROPERTY_DETAIL.PropertyExistingLienAmount'));
+    if (propExistingLien !== null) loan.existing_liens_amount = propExistingLien;
+
+    // ── Subject property address + detail ──
+    propertyFields.sp_addr1  = dig(collateral, 'ADDRESS.AddressLineText') || undefined;
+    propertyFields.sp_unit   = dig(collateral, 'ADDRESS.AddressUnitIdentifier') || undefined;
+    propertyFields.sp_city   = dig(collateral, 'ADDRESS.CityName') || undefined;
+    propertyFields.sp_state  = stateNameFromCode(dig(collateral, 'ADDRESS.StateCode')) || undefined;
+    propertyFields.sp_county = dig(collateral, 'ADDRESS.CountyName') || undefined;
+    // ZIPs arrive unformatted (e.g. "301884676") — render as ZIP+4 so it
+    // matches Arive's display ("30188-4676"). Kept as a string throughout
+    // so leading zeros survive.
+    const rawZip = dig(collateral, 'ADDRESS.PostalCode');
+    if (rawZip) {
+      const z = String(rawZip).replace(/\D/g, '');
+      propertyFields.sp_zip = z.length === 9 ? `${z.slice(0,5)}-${z.slice(5)}` : z;
+    }
+
+    propertyFields.num_units = num(dig(collateral, 'PROPERTY_DETAIL.FinancedUnitCount')) ?? undefined;
+
+    const attach = dig(collateral, 'PROPERTY_DETAIL.AttachmentType');
+    if (attach) propertyFields.attachment_type = attach;
+
+    // MISMO uses CamelCase enums; Jammie's dropdowns use spaced labels.
+    const CONSTRUCTION_MAP = { SiteBuilt:'Site Built', Manufactured:'Manufactured', Modular:'Modular', OnFrameModular:'On Frame Modular' };
+    const constr = dig(collateral, 'PROPERTY_DETAIL.ConstructionMethodType');
+    if (constr) propertyFields.construction_method = CONSTRUCTION_MAP[constr] || constr;
+
+    const OCCUPANCY_MAP = { PrimaryResidence:'Primary Residence', SecondHome:'Second Home', Investment:'Investment', Investor:'Investment' };
+    const usage = dig(collateral, 'PROPERTY_DETAIL.PropertyUsageType');
+    if (usage) propertyFields.occupancy = OCCUPANCY_MAP[usage] || usage;
+
+    const ESTATE_MAP = { FeeSimple:'Fee Simple', Leasehold:'Leasehold' };
+    const estate = dig(collateral, 'PROPERTY_DETAIL.PropertyEstateType');
+    if (estate) propertyFields.property_rights = ESTATE_MAP[estate] || estate;
+
+    // Property type isn't a single MISMO element — derive from unit count
+    // and project indicators, which is the best signal the file gives.
+    const units = num(dig(collateral, 'PROPERTY_DETAIL.FinancedUnitCount')) || 1;
+    const inProject = String(dig(collateral, 'PROPERTY_DETAIL.PropertyInProjectIndicator')) === 'true';
+    const isPUD = String(dig(collateral, 'PROPERTY_DETAIL.PUDIndicator')) === 'true';
+    propertyFields.prop_type = inProject ? 'Condominium' : isPUD ? 'PUD' : units > 1 ? '2-4 Unit' : 'Single Family (1-4 Units)';
+
+    // NOTE: year_built, year_acquired, acreage and orig_cost are NOT
+    // present anywhere in real Arive MISMO exports (verified) — they stay
+    // manual-entry-only. Same for manner_title / title_held_in, which have
+    // no MISMO counterpart in these files.
   }
 
   // HOUSING_EXPENSES carries the Proposed Monthly Payment breakdown that
@@ -720,6 +775,29 @@ function parseMismoXml(xmlString) {
   const primary = borrowerParties[0];
   if (primary) {
     form1003.first_nm = dig(primary, 'INDIVIDUAL.NAME.FirstName') || undefined;
+
+    // ── Email + phones from CONTACT_POINTS ──
+    // Each CONTACT_POINT holds EITHER an email OR a phone, with the phone's
+    // purpose in CONTACT_POINT_DETAIL.ContactPointRoleType (Mobile/Home/Work).
+    // Both were present in the file all along but never mapped, which is why
+    // the Email field stayed blank after every import.
+    let contactPoints = dig(primary, 'INDIVIDUAL.CONTACT_POINTS.CONTACT_POINT');
+    if (contactPoints && !Array.isArray(contactPoints)) contactPoints = [contactPoints];
+    (contactPoints || []).forEach(cp => {
+      const email = dig(cp, 'CONTACT_POINT_EMAIL.ContactPointEmailValue');
+      if (email && !form1003.email) form1003.email = email;
+      const phone = dig(cp, 'CONTACT_POINT_TELEPHONE.ContactPointTelephoneValue');
+      const role = dig(cp, 'CONTACT_POINT_DETAIL.ContactPointRoleType');
+      if (phone) {
+        const digits = String(phone).replace(/\D/g, '');
+        // Format as (XXX) XXX-XXXX to match how Arive displays it
+        const pretty = digits.length === 10
+          ? `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`
+          : String(phone);
+        if (role === 'Mobile' && !form1003.cell_phone) form1003.cell_phone = pretty;
+        else if (role === 'Home' && !form1003.phone) form1003.phone = pretty;
+      }
+    });
     form1003.middle_nm = dig(primary, 'INDIVIDUAL.NAME.MiddleName') || undefined;
     form1003.last_nm = dig(primary, 'INDIVIDUAL.NAME.LastName') || undefined;
     form1003.address_street = dig(primary, 'ADDRESSES.ADDRESS.AddressLineText') || undefined;
@@ -836,6 +914,87 @@ function parseMismoXml(xmlString) {
   }
   form1003.num_borrowers = borrowerParties.length || undefined;
 
+  // Merge in the subject-property fields gathered from COLLATERAL above.
+  Object.assign(form1003, propertyFields);
+
+  // ── DECLARATIONS (all 16 URLA answers, per borrower) ──
+  // Stored as a JSON array indexed by borrower, mirroring how the
+  // frontend's `declarations` state is shaped.
+  // MISMO uses a mix of true/false indicators and Yes/No enums; both are
+  // normalized to the 'Yes'/'No' strings the UI radio buttons expect.
+  const yn = v => {
+    if (v === undefined || v === null || v === '') return '';
+    const s = String(v).toLowerCase();
+    // Lowercase to match the YNRow radio component's comparison
+    if (s === 'true' || s === 'yes') return 'yes';
+    if (s === 'false' || s === 'no') return 'no';
+    return '';
+  };
+  const declarations = borrowerParties.map(p => {
+    const dd = dig(p, 'ROLES.ROLE.BORROWER.DECLARATION.DECLARATION_DETAIL');
+    if (!dd) return {};
+    return {
+      A:  yn(dig(dd, 'IntentToOccupyType')),
+      A1: yn(dig(dd, 'HomeownerPastThreeYearsType')),
+      B:  yn(dig(dd, 'EXTENSION.OTHER.DECLARATION_DETAIL_EXTENSION.SpecialBorrowerSellerRelationshipIndicator')),
+      C:  yn(dig(dd, 'UndisclosedBorrowedFundsIndicator')),
+      D1: yn(dig(dd, 'UndisclosedMortgageApplicationIndicator')),
+      D2: yn(dig(dd, 'UndisclosedCreditApplicationIndicator')),
+      E:  yn(dig(dd, 'PropertyProposedCleanEnergyLienIndicator')),
+      F:  yn(dig(dd, 'UndisclosedComakerOfNoteIndicator')),
+      G:  yn(dig(dd, 'OutstandingJudgmentsIndicator')),
+      H:  yn(dig(dd, 'PresentlyDelinquentIndicator')),
+      I:  yn(dig(dd, 'PartyToLawsuitIndicator')),
+      J:  yn(dig(dd, 'PriorPropertyDeedInLieuConveyedIndicator')),
+      K:  yn(dig(dd, 'PriorPropertyShortSaleCompletedIndicator')),
+      L:  yn(dig(dd, 'PriorPropertyForeclosureCompletedIndicator')),
+      M:  yn(dig(dd, 'BankruptcyIndicator')),
+    };
+  });
+  if (declarations.some(d => Object.keys(d).length)) {
+    form1003.declarations_json = JSON.stringify(declarations);
+  }
+
+  // ── DEMOGRAPHICS (HMDA ethnicity / sex / race / collection method) ──
+  const COLLECTION_MAP = {
+    FaceToFace: 'Face-to-Face (incl. Electronic Media)',
+    Telephone: 'Telephone Interview',
+    Mail: 'Fax or Mail',
+    Internet: 'Email or Internet',
+    Email: 'Email or Internet',
+  };
+  const demographics = borrowerParties.map(p => {
+    const gm = dig(p, 'ROLES.ROLE.BORROWER.GOVERNMENT_MONITORING');
+    if (!gm) return {};
+    const gmd = dig(gm, 'GOVERNMENT_MONITORING_DETAIL');
+    const ext = dig(gmd, 'EXTENSION.OTHER.GOVERNMENT_MONITORING_DETAIL_EXTENSION');
+
+    let races = dig(gm, 'HMDA_RACES.HMDA_RACE');
+    if (races && !Array.isArray(races)) races = [races];
+    const raceList = (races || [])
+      .map(r => dig(r, 'HMDA_RACE_DETAIL.HMDARaceType'))
+      .filter(Boolean);
+
+    let ethnicities = dig(gm, 'HMDA_ETHNICITY_ORIGINS.HMDA_ETHNICITY_ORIGIN');
+    if (ethnicities && !Array.isArray(ethnicities)) ethnicities = [ethnicities];
+    const ethList = (ethnicities || [])
+      .map(e => dig(e, 'HMDAEthnicityOriginType'))
+      .filter(Boolean);
+
+    return {
+      collectionMethod: COLLECTION_MAP[dig(ext, 'ApplicationTakenMethodType')] || '',
+      sex: dig(ext, 'HMDAGenderType') || '',
+      sexRefused: String(dig(gmd, 'HMDAGenderRefusalIndicator')) === 'true',
+      ethnicityRefused: String(dig(gmd, 'HMDAEthnicityRefusalIndicator')) === 'true',
+      raceRefused: String(dig(gmd, 'HMDARaceRefusalIndicator')) === 'true',
+      races: raceList,
+      ethnicities: ethList,
+    };
+  });
+  if (demographics.some(d => Object.keys(d).length)) {
+    form1003.demographics_json = JSON.stringify(demographics);
+  }
+
   let liabNodes = dig(deal, 'LIABILITIES.LIABILITY');
   if (liabNodes && !Array.isArray(liabNodes)) liabNodes = [liabNodes];
   if (liabNodes && liabNodes.length) {
@@ -862,7 +1021,9 @@ function parseMismoXml(xmlString) {
       const mortgage = parsedLiabs.find(l => /mortgage/i.test(l.type || ''));
       const ownedLienUPB = num(dig(deal, 'ASSETS.ASSET.OWNED_PROPERTY.OWNED_PROPERTY_DETAIL.OwnedPropertyLienUPBAmount'));
       const derived = (mortgage && mortgage.balance) ?? ownedLienUPB;
-      if (derived != null) loan.existing_liens_amount = derived;
+      // Fallback only — PropertyExistingLienAmount (set above from
+      // COLLATERAL) is the authoritative value when present.
+      if (derived != null && loan.existing_liens_amount == null) loan.existing_liens_amount = derived;
     }
   }
 
