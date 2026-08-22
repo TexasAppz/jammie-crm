@@ -727,6 +727,35 @@ function parseMismoXml(xmlString) {
   // pmt_* columns — they just were never populated from the file.
   // Only "Proposed" timing rows are used; files may also carry "Present"
   // (current housing expense) rows, which are a different thing entirely.
+  // ── CLOSING COST SUMMARY TOTALS ──
+  // The itemized A–H fee lines are NOT in Arive's MISMO export (verified:
+  // no FEES/FEE/INTEGRATED_DISCLOSURE/ESCROW_ITEMS sections exist), but
+  // these four summary figures ARE, and they reconcile exactly to Arive:
+  //   8210.95 + 4565.83 - 322.08 = 12,454.70  (Total Closing Costs)
+  //   244,000 - 12,454.70 - 3,334 = 228,211.30 (Cash to Borrower)
+  const closingInfo = dig(deal, 'LOANS.LOAN.CLOSING_INFORMATION');
+  if (closingInfo) {
+    const cashToBorrower = num(dig(closingInfo, 'CLOSING_INFORMATION_DETAIL.CashToBorrowerAtClosingAmount'));
+    if (cashToBorrower !== null) loan.cash_to_borrower = cashToBorrower;
+
+    // Lender credits arrive as CLOSING_ADJUSTMENT_ITEMs; pick the one
+    // typed LenderCredit (there may be several adjustment types).
+    let adjItems = dig(closingInfo, 'CLOSING_ADJUSTMENT_ITEMS.CLOSING_ADJUSTMENT_ITEM');
+    if (adjItems && !Array.isArray(adjItems)) adjItems = [adjItems];
+    (adjItems || []).forEach(item => {
+      const type = dig(item, 'CLOSING_ADJUSTMENT_ITEM_DETAIL.ClosingAdjustmentItemType');
+      const amt = num(dig(item, 'CLOSING_ADJUSTMENT_ITEM_DETAIL.ClosingAdjustmentItemAmount'));
+      if (type === 'LenderCredit' && amt !== null) loan.lender_credit_amount = amt;
+    });
+  }
+  // Both live under the URLA document data set, not at LOAN level
+  // (verified against the real export).
+  const urlaDetail = dig(loanNode, 'DOCUMENT_SPECIFIC_DATA_SETS.DOCUMENT_SPECIFIC_DATA_SET.URLA.URLA_DETAIL');
+  const estClosing = num(dig(urlaDetail, 'EstimatedClosingCostsAmount'));
+  if (estClosing !== null) loan.estimated_closing_costs = estClosing;
+  const prepaidItems = num(dig(urlaDetail, 'PrepaidItemsEstimatedAmount'));
+  if (prepaidItems !== null) loan.prepaid_items_estimated = prepaidItems;
+
   let housingExpenses = dig(loanNode, 'HOUSING_EXPENSES.HOUSING_EXPENSE');
   if (housingExpenses && !Array.isArray(housingExpenses)) housingExpenses = [housingExpenses];
   const HOUSING_EXPENSE_MAP = {
@@ -1051,6 +1080,15 @@ function parseMismoXml(xmlString) {
       // Fallback only — PropertyExistingLienAmount (set above from
       // COLLATERAL) is the authoritative value when present.
       if (derived != null && loan.existing_liens_amount == null) loan.existing_liens_amount = derived;
+    }
+    // "Estimated Total Payoffs and Payments" — Arive shows $3,334.00 for
+    // this loan, which is the sum of the paid-off liabilities' balances.
+    // Not a MISMO element, so derived here the same way Arive does it.
+    const payoffTotal = parsedLiabs
+      .filter(l => l.paid_off)
+      .reduce((a, l) => a + (Number(l.balance) || 0), 0);
+    if (payoffTotal > 0) {
+      loan.total_payoffs = Number(payoffTotal.toFixed(2));
     }
   }
 

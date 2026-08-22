@@ -1821,6 +1821,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       pmt_association_dues: loanRow.pmt_association_dues ? String(loanRow.pmt_association_dues) : '',
       pmt_other:            loanRow.pmt_other            ? String(loanRow.pmt_other)            : '',
       pmt_other_desc:       loanRow.pmt_other_desc       || '',
+      // Closing-cost summary totals from MISMO import (migration 09)
+      estimated_closing_costs: loanRow.estimated_closing_costs || '',
+      prepaid_items_estimated: loanRow.prepaid_items_estimated || '',
+      lender_credit_amount:    loanRow.lender_credit_amount    || '',
+      cash_to_borrower:        loanRow.cash_to_borrower        || '',
+      total_payoffs:           loanRow.total_payoffs           || '',
       cashOutPurpose:       loanRow.cash_out_purpose     || '',
       lienPosition:         loanRow.lien_position        || 'First Lien',
       amortTerm:            loanRow.amort_term           ? String(loanRow.amort_term) : '360',
@@ -1905,6 +1911,13 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             return {
               ...p,
               rate:        existing.rate || p.rate || '',
+              // Closing totals (migration 09) live on the loans table, but
+              // are surfaced in formData for the Cash to Close panel.
+              estimated_closing_costs: p.estimated_closing_costs,
+              prepaid_items_estimated: p.prepaid_items_estimated,
+              lender_credit_amount:    p.lender_credit_amount,
+              cash_to_borrower:        p.cash_to_borrower,
+              total_payoffs:           p.total_payoffs,
               // ── Subject property (real columns as of migration 07) ──
               spAddr1:     existing.sp_addr1 || (existing.address_street && !p.spAddr1 ? existing.address_street : p.spAddr1),
               spUnit:      existing.sp_unit   || p.spUnit,
@@ -1992,6 +2005,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           refinance_program:     formData.refinanceProgram || null,
           refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
           pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
+          estimated_closing_costs: parseFloat(formData.estimated_closing_costs) || null,
+          prepaid_items_estimated: parseFloat(formData.prepaid_items_estimated) || null,
+          lender_credit_amount:    parseFloat(formData.lender_credit_amount)    || null,
+          cash_to_borrower:        parseFloat(formData.cash_to_borrower)        || null,
+          total_payoffs:           parseFloat(formData.total_payoffs)           || null,
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
                               : loan.subject_property || 'TBD',
@@ -2138,6 +2156,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           refinance_program:     formData.refinanceProgram || null,
           refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
           pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
+          estimated_closing_costs: parseFloat(formData.estimated_closing_costs) || null,
+          prepaid_items_estimated: parseFloat(formData.prepaid_items_estimated) || null,
+          lender_credit_amount:    parseFloat(formData.lender_credit_amount)    || null,
+          cash_to_borrower:        parseFloat(formData.cash_to_borrower)        || null,
+          total_payoffs:           parseFloat(formData.total_payoffs)           || null,
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
                               : loan.subject_property || 'TBD',
@@ -2225,6 +2248,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     { id:'loan',      label:'Loan & Property',  icon:'🏠' },
     { id:'borrower',  label:'Borrower Info',     icon:'👤' },
     { id:'financial', label:'Financial Info',    icon:'💰' },
+    { id:'pricing',   label:'Product & Pricing', icon:'🏷️' },
     { id:'fees',      label:'Review Fees',       icon:'📋' },
     { id:'documents', label:'Documents',         icon:'📁' },
   ];
@@ -2560,7 +2584,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         ))}
         <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
           <span style={{fontSize:13,color:'var(--text-3)'}}>
-            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':activeTab==='financial'?'Financial Information':activeTab==='fees'?'Review Fees':'Documents'}
+            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':activeTab==='financial'?'Financial Information':activeTab==='pricing'?'Product & Pricing':activeTab==='fees'?'Review Fees':'Documents'}
           </span>
         </div>
       </div>
@@ -3095,6 +3119,90 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         {/* ════════════════════════════
             TAB 4 — REVIEW FEES
         ════════════════════════════ */}
+        {/* ════════════════════════════
+            TAB — PRODUCT & PRICING (read-only summary)
+            Pulls entirely from Loan & Property / Borrower Info /
+            Financial Info. No pricing-adjustment data exists in the
+            MISMO export, so no adjustments table is shown.
+        ════════════════════════════ */}
+        {activeTab==='pricing' && (()=>{
+          const d = calcDTI();
+          const isRefi = formData.mortgagePurpose === 'Refinance';
+          const baseLoan = parseFloat(formData.baseLoan)||0;
+          const ltvPct = ltvBasis>0 && baseLoan ? ((baseLoan/ltvBasis)*100).toFixed(3)+'%' : '--';
+          const Row = ({label, value}) => (
+            <div style={{display:'flex',padding:'8px 0',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+              <span style={{color:'var(--text-3)',width:190,flexShrink:0}}>{label}</span>
+              <span style={{color:'var(--text)',fontWeight:500}}>{value||'--'}</span>
+            </div>
+          );
+          const productName = [
+            formData.mortgageType,
+            formData.amortTerm==='360'?'30 Year':formData.amortTerm==='240'?'20 Year':formData.amortTerm==='180'?'15 Year':formData.amortTerm==='120'?'10 Year':'',
+            formData.amortType,
+          ].filter(Boolean).join(' ');
+          return (
+            <div style={{maxWidth:1100}}>
+              <div style={{fontSize:20,fontWeight:700,color:'var(--text)',marginBottom:20}}>Product &amp; Pricing</div>
+              <div style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',marginBottom:24}}>
+                <div style={{padding:'12px 20px',background:'var(--cream)',borderBottom:'1px solid var(--border)',fontSize:15,fontWeight:700}}>
+                  Product Info
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 40px',padding:'14px 20px'}}>
+                  <div>
+                    <Row label="Product" value={productName}/>
+                    <Row label="Mortgage Type" value={formData.mortgageType}/>
+                    <Row label="Amortization Type" value={formData.amortType}/>
+                    <Row label="Note Rate" value={formData.rate?formData.rate+' %':'--'}/>
+                  </div>
+                  <div>
+                    <Row label="Amortization Term" value={formData.amortTerm?formData.amortTerm+' months':'--'}/>
+                    <Row label="Lien Position" value={formData.lienPosition}/>
+                    <Row label="Lender" value={loan.lender}/>
+                    <Row label="Loan Number" value={loan.loan_number}/>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',marginBottom:24}}>
+                <div style={{padding:'12px 20px',background:'var(--cream)',borderBottom:'1px solid var(--border)',fontSize:15,fontWeight:700}}>
+                  Loan Info
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 40px',padding:'14px 20px'}}>
+                  <div>
+                    <Row label="Loan Amount" value={baseLoan?'$'+money2(baseLoan):'--'}/>
+                    <Row label="Loan Purpose" value={isRefi?('Refinance'+(formData.refiType?' — '+formData.refiType:'')):'Purchase'}/>
+                    <Row label="Occupancy" value={formData.occupancy}/>
+                    <Row label="Property Type" value={formData.propType}/>
+                  </div>
+                  <div>
+                    <Row label="LTV" value={ltvPct}/>
+                    <Row label="Appraised Value" value={formData.appraisedVal?'$'+money2(formData.appraisedVal):'--'}/>
+                    <Row label="Estimated Credit Score" value={borrowers[0]?.estCreditScore}/>
+                    <Row label="DTI (Front / Back)" value={d.front>0?`${d.front.toFixed(2)}% / ${d.back.toFixed(2)}%`:'--'}/>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden'}}>
+                <div style={{padding:'12px 20px',background:'var(--cream)',borderBottom:'1px solid var(--border)',fontSize:15,fontWeight:700}}>
+                  Qualifying Summary
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 40px',padding:'14px 20px'}}>
+                  <div>
+                    <Row label="Total Monthly Income" value={d.income>0?'$'+money2(d.income):'--'}/>
+                    <Row label="Proposed Housing (PITI)" value={d.housing>0?'$'+money2(d.housing):'--'}/>
+                  </div>
+                  <div>
+                    <Row label="Other Monthly Debts" value={d.otherDebts>0?'$'+money2(d.otherDebts):'--'}/>
+                    <Row label="Existing Liens" value={formData.existingLiensAmount?'$'+money2(formData.existingLiensAmount):'--'}/>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {activeTab==='fees' && <>
 
           {/* Header */}
@@ -3260,16 +3368,47 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
             {/* Calculating Cash to Close */}
             {(()=>{
-              const totalClosingCosts = fees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
+              const isRefi = formData.mortgagePurpose === 'Refinance';
+              // Prefer MISMO summary totals when the loan came from an
+              // import; fall back to summing Jammie's own fee lines.
+              const feeLineTotal = fees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
+              const mismoClosing = parseFloat(formData.estimated_closing_costs)||0;
+              const mismoPrepaid = parseFloat(formData.prepaid_items_estimated)||0;
+              const lenderCredit = parseFloat(formData.lender_credit_amount)||0;
+              const totalClosingCosts = (mismoClosing || mismoPrepaid)
+                ? (mismoClosing + mismoPrepaid - lenderCredit)
+                : feeLineTotal;
+
               const baseLoan    = parseFloat(formData.baseLoan)||0;
               const appraisedVal= parseFloat(formData.appraisedVal)||0;
-              const downPayment = appraisedVal > baseLoan ? appraisedVal - baseLoan : 0;
+              const salesPrice  = parseFloat(formData.salesPrice)||0;
+              // BUG FIX: the old formula was `appraisedVal - baseLoan`, which
+              // is meaningless on a refinance — on this loan it produced
+              // 545,200 - 244,000 = 301,200 instead of the correct
+              // 228,211.30. A refinance has NO down payment; a purchase's
+              // down payment is price (not appraised value) minus the loan.
+              const downPayment = isRefi ? 0
+                : (salesPrice > baseLoan ? salesPrice - baseLoan : 0);
+
               const earnest        = parseFloat(formData.earnest_money_deposit)||0;
               const sellerCredits  = parseFloat(formData.seller_credits)||0;
               const fundsForBorr   = parseFloat(formData.funds_for_borrower)||0;
               const closingFin     = parseFloat(formData.closing_costs_financed)||0;
               const adjustments    = parseFloat(formData.adjustments_other_credits)||0;
-              const cashFromBorrower = totalClosingCosts + downPayment - earnest - sellerCredits - fundsForBorr - closingFin - adjustments;
+              const payoffs        = parseFloat(formData.total_payoffs)||0;
+
+              // On a refinance the borrower generally RECEIVES money:
+              //   loan amount - closing costs - payoffs = cash to borrower.
+              // On a purchase they BRING money:
+              //   closing costs + down payment - credits = cash from borrower.
+              // `cashFromBorrower` stays positive-means-borrower-pays for the
+              // purchase case; refis produce a negative (i.e. cash out).
+              const importedCashToBorrower = parseFloat(formData.cash_to_borrower);
+              const cashFromBorrower = isRefi
+                ? (Number.isFinite(importedCashToBorrower) && importedCashToBorrower !== 0
+                    ? -importedCashToBorrower
+                    : -(baseLoan - totalClosingCosts - payoffs - fundsForBorr))
+                : (totalClosingCosts + downPayment - earnest - sellerCredits - fundsForBorr - closingFin - adjustments);
 
               const EditableAmt = (field, negate) => (
                 <div style={{display:'flex',alignItems:'center',gap:2}}>
@@ -3305,14 +3444,27 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       {EditableAmt(field, negate)}
                     </div>
                   ))}
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
-                    <span style={{color:'var(--text-2)'}}>Down Payment / Funds from Borrower</span>
-                    <span style={{fontWeight:500}}>${money2(downPayment)}</span>
-                  </div>
+                  {isRefi ? <>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                      <span style={{color:'var(--text-2)'}}>Loan Amount</span>
+                      <span style={{fontWeight:500}}>${money2(baseLoan)}</span>
+                    </div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                      <span style={{color:'var(--text-2)'}}>Estimated Total Payoffs and Payments</span>
+                      <span style={{fontWeight:500,color:payoffs>0?'#b91c1c':'var(--text)'}}>{payoffs>0?'−':''}${money2(payoffs)}</span>
+                    </div>
+                  </> : (
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
+                      <span style={{color:'var(--text-2)'}}>Down Payment / Funds from Borrower</span>
+                      <span style={{fontWeight:500}}>${money2(downPayment)}</span>
+                    </div>
+                  )}
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',background:'var(--cream)'}}>
-                    <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>Cash from Borrower</span>
+                    <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>
+                      {cashFromBorrower<0 ? 'Estimated Cash to Close (To) Borrower' : 'Cash from Borrower'}
+                    </span>
                     <span style={{fontSize:18,fontWeight:700,color:cashFromBorrower<0?'#15803d':'var(--accent)'}}>
-                      {cashFromBorrower<0?'−':''}${money2(Math.abs(cashFromBorrower))}
+                      ${money2(Math.abs(cashFromBorrower))}
                     </span>
                   </div>
                 </div>
@@ -3322,13 +3474,30 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
           {/* Sticky Cash from Borrower bar — ARIVE style */}
           {!feesLoading && (()=>{
-            const totalClosingCosts = fees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
+            // Mirrors the Calculating Cash to Close panel above — same
+            // refinance-aware logic, so the sticky bar can't disagree
+            // with the panel (it previously used the buggy
+            // appraised-minus-loan down payment formula).
+            const isRefi = formData.mortgagePurpose === 'Refinance';
+            const feeLineTotal = fees.reduce((a,f)=>a+(parseFloat(f.at_closing)||0),0);
+            const mismoClosing = parseFloat(formData.estimated_closing_costs)||0;
+            const mismoPrepaid = parseFloat(formData.prepaid_items_estimated)||0;
+            const lenderCredit = parseFloat(formData.lender_credit_amount)||0;
+            const totalClosingCosts = (mismoClosing || mismoPrepaid)
+              ? (mismoClosing + mismoPrepaid - lenderCredit) : feeLineTotal;
             const baseLoan    = parseFloat(formData.baseLoan)||0;
-            const appraisedVal= parseFloat(formData.appraisedVal)||0;
-            const downPayment = appraisedVal > baseLoan ? appraisedVal - baseLoan : 0;
+            const salesPrice  = parseFloat(formData.salesPrice)||0;
+            const downPayment = isRefi ? 0 : (salesPrice > baseLoan ? salesPrice - baseLoan : 0);
             const earnest     = parseFloat(formData.earnest_money_deposit)||0;
             const seller      = parseFloat(formData.seller_credits)||0;
-            const cashFromBorrower = totalClosingCosts + downPayment - earnest - seller;
+            const fundsForBorr= parseFloat(formData.funds_for_borrower)||0;
+            const payoffs     = parseFloat(formData.total_payoffs)||0;
+            const importedCashToBorrower = parseFloat(formData.cash_to_borrower);
+            const cashFromBorrower = isRefi
+              ? (Number.isFinite(importedCashToBorrower) && importedCashToBorrower !== 0
+                  ? -importedCashToBorrower
+                  : -(baseLoan - totalClosingCosts - payoffs - fundsForBorr))
+              : (totalClosingCosts + downPayment - earnest - seller);
             return (
               <div style={{position:'fixed',bottom:64,right:20,
                 background:'rgba(15,22,35,.96)',color:'#fff',
@@ -3336,9 +3505,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 boxShadow:'0 4px 24px rgba(0,0,0,.35)',zIndex:60,
                 display:'flex',alignItems:'center',gap:12,
                 border:'1px solid rgba(255,255,255,.08)'}}>
-                <span style={{color:'#94a3b8',fontSize:13}}>Cash from Borrower :</span>
+                <span style={{color:'#94a3b8',fontSize:13}}>
+                  {cashFromBorrower<0 ? 'Cash To Borrower :' : 'Cash from Borrower :'}
+                </span>
                 <span style={{color:'#60a5fa',fontSize:16,fontWeight:700}}>
-                  {cashFromBorrower<0?'−':''}${money2(Math.abs(cashFromBorrower))}
+                  ${money2(Math.abs(cashFromBorrower))}
                 </span>
                 <button style={{background:'rgba(37,99,235,.25)',border:'1px solid #3b82f6',
                   color:'#93c5fd',borderRadius:6,padding:'3px 10px',fontSize:12,cursor:'pointer',fontWeight:600}}>
