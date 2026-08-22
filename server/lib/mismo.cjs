@@ -730,6 +730,19 @@ function parseMismoXml(xmlString) {
     if (dob) form1003.dob = dateOnly(dob);
     const marital = dig(primary, 'ROLES.ROLE.BORROWER.BORROWER_DETAIL.MaritalStatusType');
     if (marital) form1003.marital_status = marital;
+    // Was entirely unmapped — every import defaulted to U.S. Citizen
+    // regardless of the file's actual value. Jammie's radio buttons use
+    // short codes, not MISMO's CamelCase enum.
+    const citizenshipType = dig(primary, 'ROLES.ROLE.BORROWER.DECLARATION.DECLARATION_DETAIL.CitizenshipResidencyType');
+    const CITIZENSHIP_MAP = {
+      USCitizen: 'us_citizen',
+      PermanentResidentAlien: 'perm_resident',
+      NonPermanentResidentAlien: 'non_perm',
+      ForeignNational: 'foreign',
+    };
+    if (citizenshipType && CITIZENSHIP_MAP[citizenshipType]) {
+      form1003.citizenship = CITIZENSHIP_MAP[citizenshipType];
+    }
     // Accepts SSN with or without hyphens from the source file — always
     // normalized to Jammie's own XXX-XX-XXXX display format.
     const ssn = dig(primary, 'TAXPAYER_IDENTIFIERS.TAXPAYER_IDENTIFIER.TaxpayerIdentifierValue');
@@ -784,6 +797,32 @@ function parseMismoXml(xmlString) {
     }
     const ownershipInterest = dig(primary, 'ROLES.ROLE.BORROWER.EMPLOYERS.EMPLOYER.EMPLOYMENT.OwnershipInterestType');
     if (ownershipInterest) form1003.ownership_interest = ownershipInterest;
+
+    // Write incomes_json directly (matching the shape App.jsx's income
+    // array expects) rather than relying solely on the frontend rebuilding
+    // it from the legacy gross_income_monthly_* columns — belt and
+    // suspenders, and consistent with how liabilities_json/reos_json are
+    // already handled below.
+    if (form1003.gross_income_monthly_base || form1003.gross_income_monthly_overtime
+        || form1003.gross_income_monthly_bonus || form1003.gross_income_monthly_commission
+        || form1003.gross_income_monthly_other) {
+      form1003.incomes_json = JSON.stringify([{
+        id: Date.now(), borrower: 'Borrower', type: 'Employment Income',
+        employer: form1003.employee_or_business_nm || '',
+        position: form1003.position_title || '',
+        startDate: form1003.position_start_date || '',
+        base: form1003.gross_income_monthly_base || '',
+        overtime: form1003.gross_income_monthly_overtime || '',
+        bonuses: form1003.gross_income_monthly_bonus || '',
+        commission: form1003.gross_income_monthly_commission || '',
+        otherW2: form1003.gross_income_monthly_other || '',
+        currentEmp: true, primary: true,
+        selfEmp: form1003.self_employed === 1,
+        familyRelated: false,
+        addr1: '', city: '', state: '', zip: '', country: 'United States',
+        phone: '', verPhone: '', verEmail: '', endDate: '', tips: '', seasonal: '',
+      }]);
+    }
   }
 
   for (let i = 0; i < 3; i++) {

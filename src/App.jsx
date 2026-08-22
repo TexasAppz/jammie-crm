@@ -1133,23 +1133,6 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
   };
 
   return <>
-    {/* Borrower Tabs */}
-    <div style={{display:'flex',alignItems:'center',borderBottom:'1px solid var(--border)',marginBottom:20}}>
-      {borrowers.map((bx,i)=>(
-        <button key={i} className={`b-tab-1003${activeBIdx===i?' active':''}`} onClick={()=>setActiveBIdx(i)}>
-          {(bx.firstName||bx.lastName) ? `${bx.firstName} ${bx.lastName}`.trim() : bx.label}
-        </button>
-      ))}
-      <button className="btn btn-sm btn-ghost" style={{marginLeft:8}} onClick={()=>{
-        const labels=['Co-Borrower','Borrower 3','Borrower 4','Borrower 5'];
-        setBorrowers(p=>[...p,emptyBorrower1003(labels[p.length-1]||`Borrower ${p.length+1}`)]);
-        setActiveBIdx(borrowers.length);
-      }}>+ Add Borrower</button>
-      {activeBIdx > 0 && <button className="btn btn-sm btn-danger" style={{marginLeft:4}} onClick={()=>{
-        setBorrowers(p=>p.filter((_,i)=>i!==activeBIdx)); setActiveBIdx(0);
-      }}>✕ Remove</button>}
-    </div>
-
     <div className="f1003-sub-hdr">Personal Information {activeBIdx===0&&<span style={{fontSize:10,background:'#2563EB',color:'#fff',padding:'1px 6px',borderRadius:8,marginLeft:6}}>Primary</span>}</div>
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:14,marginBottom:14}}>
       <FField label="First Name" req><FInput value={b.firstName} onChange={e=>upd('firstName',e.target.value)} placeholder="First"/></FField>
@@ -1190,6 +1173,10 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
       <FField label="Joined to Borrower"><FSelect value={b.joined} onChange={e=>upd('joined',e.target.value)}><option value="">Please Select</option><option>Spouse</option><option>Civil Union Partner</option><option>Other</option></FSelect></FField>
       <FField label="Tax Filing Address Same As"><FSelect value={b.taxSameAs} onChange={e=>upd('taxSameAs',e.target.value)}><option value="">Please Select</option><option>Borrower</option><option>Co-Borrower</option></FSelect></FField>
       <FField label="Present Address Same As"><FSelect value={b.addrSameAs} onChange={e=>upd('addrSameAs',e.target.value)}><option value="">Please Select</option><option>Borrower</option><option>Co-Borrower</option></FSelect></FField>
+    </div>
+
+    <div style={{marginBottom:14,maxWidth:340}}>
+      <FField label="Email Address"><FInput type="email" value={b.email||''} onChange={e=>upd('email',e.target.value)} placeholder="name@example.com"/></FField>
     </div>
 
     <div className="form-grid" style={{marginBottom:20}}>
@@ -1725,7 +1712,6 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       pmt_association_dues: loanRow.pmt_association_dues ? String(loanRow.pmt_association_dues) : '',
       pmt_other:            loanRow.pmt_other            ? String(loanRow.pmt_other)            : '',
       pmt_other_desc:       loanRow.pmt_other_desc       || '',
-      refiType:             loanRow.refi_type            || '',
       cashOutPurpose:       loanRow.cash_out_purpose     || '',
       lienPosition:         loanRow.lien_position        || 'First Lien',
       amortTerm:            loanRow.amort_term           ? String(loanRow.amort_term) : '360',
@@ -1780,7 +1766,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             let reos        = existing.reos_json        ? parseArr(existing.reos_json)        : null;
 
             // Fallback: rebuild income entry #1 from legacy columns if any income data exists
-            if (!incomes && (existing.employee_or_business_nm || parseFloat(existing.gross_income_monthly_base) > 0)) {
+            // BUG FIX: `!incomes` is false when incomes_json was saved as
+            // '[]' (happens the instant any autoSave fires before income is
+            // entered — e.g. right after creating a loan, before a MISMO
+            // import runs). An empty array is truthy in JS, so the correct
+            // gross_income_monthly_* values were being silently ignored.
+            if ((!incomes || incomes.length === 0) && (existing.employee_or_business_nm || parseFloat(existing.gross_income_monthly_base) > 0)) {
               incomes = [{
                 id: Date.now(), borrower:'Borrower', type:'Employment Income',
                 employer:    existing.employee_or_business_nm || '',
@@ -1833,7 +1824,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       +(parseFloat(formData.pmt_supplemental)||0)
       +(parseFloat(formData.pmt_association_dues)||0)
       +(parseFloat(formData.pmt_other)||0);
-    const otherDebts = (formData.liabilities||[]).filter(l=>l.dti==='Include')
+    const otherDebts = (formData.liabilities||[]).filter(l=>l.dti==='Include' && !l.paid_off)
       .reduce((a,x)=>a+(parseFloat(x.payment)||0),0);
     const front = income>0 ? (housing/income)*100 : 0;
     const back  = income>0 ? ((housing+otherDebts)/income)*100 : 0;
@@ -1870,7 +1861,6 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           product:          formData.amortType && formData.mortgageType
                               ? `${formData.mortgageType} ${formData.amortTerm==='360'?'30yr':formData.amortTerm==='180'?'15yr':formData.amortTerm+'mo'} ${formData.amortType}`
                               : loan.product || 'TBD',
-          refi_type:        formData.refiType        || null,
           cash_out_purpose: formData.cashOutPurpose  || null,
           lien_position:    formData.lienPosition    || 'First Lien',
           amort_term:       parseInt(formData.amortTerm) || 360,
@@ -1994,7 +1984,6 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           subject_property: formData.spAddr1
                               ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
                               : loan.subject_property || 'TBD',
-          refi_type:        formData.refiType        || null,
           cash_out_purpose: formData.cashOutPurpose  || null,
           lien_position:    formData.lienPosition    || 'First Lien',
           amort_term:       parseInt(formData.amortTerm) || 360,
@@ -2453,7 +2442,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                     what Arive does) — using appraised value alone would
                     understate LTV whenever a home appraises above contract. */}
                 {formData.mortgagePurpose!=='Refinance' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Purchase Price *</label>
                       <div className="dollar-wrap"><input className="form-input" type="number" value={formData.salesPrice||''} onChange={e=>setFormData(p=>({...p,salesPrice:e.target.value}))} placeholder="0"/></div>
@@ -2463,38 +2452,36 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
                     </div>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 90px 1fr 110px',gap:12,marginBottom:16,alignItems:'end'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Down Payment *</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.downPayment||''} onChange={e=>{
-                        const dp = e.target.value;
-                        setFormData(p=>{
-                          const price = parseFloat(p.salesPrice)||0;
-                          return {...p, downPayment: dp, baseLoan: price>0 ? String((price-(parseFloat(dp)||0)).toFixed(2)) : p.baseLoan};
-                        });
-                      }} placeholder="0"/></div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">%</label>
-                      <div style={{padding:'9px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:14,fontWeight:600,textAlign:'center'}}>
-                        {formData.salesPrice && formData.downPayment && parseFloat(formData.salesPrice)>0
-                          ? ((parseFloat(formData.downPayment)/parseFloat(formData.salesPrice))*100).toFixed(3)+'%' : '--'}
+                      <div style={{position:'relative'}}>
+                        <div className="dollar-wrap"><input className="form-input" style={{paddingRight:64}} type="number" value={formData.downPayment||''} onChange={e=>{
+                          const dp = e.target.value;
+                          setFormData(p=>{
+                            const price = parseFloat(p.salesPrice)||0;
+                            return {...p, downPayment: dp, baseLoan: price>0 ? String((price-(parseFloat(dp)||0)).toFixed(2)) : p.baseLoan};
+                          });
+                        }} placeholder="0"/></div>
+                        <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text-3)'}}>
+                          {formData.salesPrice && formData.downPayment && parseFloat(formData.salesPrice)>0
+                            ? ((parseFloat(formData.downPayment)/parseFloat(formData.salesPrice))*100).toFixed(2)+'%' : ''}
+                        </span>
                       </div>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Base Loan Amount *</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.baseLoan||''} onChange={e=>{
-                        const bl = e.target.value;
-                        setFormData(p=>{
-                          const price = parseFloat(p.salesPrice)||0;
-                          return {...p, baseLoan: bl, downPayment: price>0 ? String((price-(parseFloat(bl)||0)).toFixed(2)) : p.downPayment};
-                        });
-                      }} placeholder="0"/></div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">LTV *</label>
-                      <div style={{padding:'9px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:14,fontWeight:600,color:'var(--accent)',textAlign:'center'}}>
-                        {ltvBasis>0 && formData.baseLoan ? ((parseFloat(formData.baseLoan)/ltvBasis)*100).toFixed(3)+'%' : '--'}
+                      <div style={{position:'relative'}}>
+                        <div className="dollar-wrap"><input className="form-input" style={{paddingRight:72}} type="number" value={formData.baseLoan||''} onChange={e=>{
+                          const bl = e.target.value;
+                          setFormData(p=>{
+                            const price = parseFloat(p.salesPrice)||0;
+                            return {...p, baseLoan: bl, downPayment: price>0 ? String((price-(parseFloat(bl)||0)).toFixed(2)) : p.downPayment};
+                          });
+                        }} placeholder="0"/></div>
+                        <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:'var(--accent)'}}>
+                          {ltvBasis>0 && formData.baseLoan ? 'LTV '+((parseFloat(formData.baseLoan)/ltvBasis)*100).toFixed(2)+'%' : ''}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -2502,20 +2489,19 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
                 {/* REFINANCE — mirrors Arive's Refinance tab */}
                 {formData.mortgagePurpose==='Refinance' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 110px',gap:16,marginBottom:16}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Appraised Value *</label>
                       <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Base Loan Amount *</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.baseLoan||''} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/></div>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">LTV *</label>
-                      <div style={{padding:'9px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontSize:14,fontWeight:600,color:'var(--accent)',textAlign:'center'}}>
-                        {formData.appraisedVal && formData.baseLoan && parseFloat(formData.appraisedVal)>0
-                          ? ((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(3)+'%' : '--'}
+                      <div style={{position:'relative'}}>
+                        <div className="dollar-wrap"><input className="form-input" style={{paddingRight:72}} type="number" value={formData.baseLoan||''} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/></div>
+                        <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:'var(--accent)'}}>
+                          {formData.appraisedVal && formData.baseLoan && parseFloat(formData.appraisedVal)>0
+                            ? 'LTV '+((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(2)+'%' : ''}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -2523,27 +2509,29 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       label keeps all four inputs on the same baseline even
                       when a label wraps to two lines (Existing Liens Amount
                       was previously pushing its input down out of line). */}
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:16,marginBottom:16,alignItems:'end'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
-                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Refinance Type *</label>
+                      <label className="form-label">Refinance Type *</label>
                       <select className="form-select" value={formData.refiType||''} onChange={e=>setFormData(p=>({...p,refiType:e.target.value}))}>
                         <option value="">- Select -</option>
                         <option>Rate &amp; Term</option><option>Limited Cash-Out</option><option>Cash-Out</option>
                       </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Cash-Out Purpose</label>
+                      <label className="form-label">Cash-Out Purpose</label>
                       <select className="form-select" value={formData.cashOutPurpose||''} onChange={e=>setFormData(p=>({...p,cashOutPurpose:e.target.value}))}>
                         <option value="">- Select -</option>
                         <option>DebtConsolidation</option><option>HomeImprovement</option><option>Other</option>
                       </select>
                     </div>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
-                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Existing Liens Amount</label>
+                      <label className="form-label">Existing Liens Amount</label>
                       <div className="dollar-wrap"><input className="form-input" type="number" value={formData.existingLiensAmount||''} onChange={e=>setFormData(p=>({...p,existingLiensAmount:e.target.value}))} placeholder="0"/></div>
                     </div>
                     <div className="form-group">
-                      <label className="form-label" style={{minHeight:32,display:'flex',alignItems:'flex-end'}}>Refinance Program</label>
+                      <label className="form-label">Refinance Program</label>
                       <select className="form-select" value={formData.refinanceProgram||'Full Doc'} onChange={e=>setFormData(p=>({...p,refinanceProgram:e.target.value}))}>
                         <option>Full Doc</option><option>Streamline</option><option>IRRRL</option><option>Other</option>
                       </select>
@@ -2551,7 +2539,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   </div>
                 </>}
 
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                   <div className="form-group">
                     <label className="form-label">Mortgage Type *</label>
                     <select className="form-select" value={formData.mortgageType||''} onChange={e=>setFormData(p=>({...p,mortgageType:e.target.value}))}>
@@ -2567,7 +2555,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   </div>
                 </div>
 
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                   <div className="form-group">
                     <label className="form-label">Amortization Type</label>
                     <select className="form-select" value={formData.amortType||'Fixed'} onChange={e=>setFormData(p=>({...p,amortType:e.target.value}))}>
@@ -2580,7 +2568,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   </div>
                 </div>
 
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24}}>
                   <div className="form-group">
                     <label className="form-label">Amortization Term</label>
                     <select className="form-select" value={formData.amortTerm||'360'} onChange={e=>setFormData(p=>({...p,amortTerm:e.target.value}))}>
@@ -2892,7 +2880,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           <div style={{marginBottom:28}}>
             <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:4}}>
               Monthly Liability: <span style={{color:'#b91c1c'}}>
-                ${(formData.liabilities||[]).filter(l=>l.dti==='Include').reduce((a,x)=>a+(parseFloat(x.payment)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
+                ${(formData.liabilities||[]).filter(l=>l.dti==='Include' && !l.paid_off).reduce((a,x)=>a+(parseFloat(x.payment)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
               </span>
               <span style={{fontSize:13,color:'var(--text-3)',marginLeft:12,fontWeight:400}}>
                 Paid Off: ${(formData.liabilities||[]).filter(l=>l.paid_off).reduce((a,x)=>a+(parseFloat(x.balance)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
