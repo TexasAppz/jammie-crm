@@ -678,7 +678,10 @@ function parseMismoXml(xmlString) {
     propertyFields.sp_unit   = dig(collateral, 'ADDRESS.AddressUnitIdentifier') || undefined;
     propertyFields.sp_city   = dig(collateral, 'ADDRESS.CityName') || undefined;
     propertyFields.sp_state  = stateNameFromCode(dig(collateral, 'ADDRESS.StateCode')) || undefined;
-    propertyFields.sp_county = dig(collateral, 'ADDRESS.CountyName') || undefined;
+    // MISMO sends "Cherokee County"; Arive's county field shows just
+    // "Cherokee" (the word "County" is implied by the field label).
+    const rawCounty = dig(collateral, 'ADDRESS.CountyName');
+    if (rawCounty) propertyFields.sp_county = String(rawCounty).replace(/\s+County$/i, '').trim();
     // ZIPs arrive unformatted (e.g. "301884676") — render as ZIP+4 so it
     // matches Arive's display ("30188-4676"). Kept as a string throughout
     // so leading zeros survive.
@@ -981,14 +984,38 @@ function parseMismoXml(xmlString) {
       .map(e => dig(e, 'HMDAEthnicityOriginType'))
       .filter(Boolean);
 
+    // Map MISMO's race enums to the keys the demographics checkboxes use.
+    const RACE_MAP = {
+      White: 'White',
+      BlackOrAfricanAmerican: 'BlackOrAfricanAmerican',
+      AmericanIndianOrAlaskaNative: 'AmericanIndian',
+      Asian: 'Asian',
+      NativeHawaiianOrOtherPacificIslander: 'PacificIslander',
+      AsianIndian: 'Asian Indian', Chinese: 'Chinese', Filipino: 'Filipino',
+      Vietnamese: 'Vietnamese', Korean: 'Korean', Japanese: 'Japanese',
+      OtherAsian: 'Other Asian', NativeHawaiian: 'Native Hawaiian',
+      Samoan: 'Samoan', GuamanianOrChamorro: 'Guamanian or Chamorro',
+      OtherPacificIslander: 'Other Pacific Islander',
+    };
+    const ETHNICITY_MAP = {
+      Mexican: 'Mexican', PuertoRican: 'Puerto Rican', Cuban: 'Cuban',
+      OtherHispanicOrLatino: 'Other Hispanic or Latino',
+    };
+    const mappedRaces = raceList.map(r => RACE_MAP[r] || r);
+    const mappedEth = ethList.map(e => ETHNICITY_MAP[e] || e);
+    // HMDAEthnicityType (Hispanic vs Not) lives alongside the origin list
+    const ethType = dig(gm, 'HMDA_ETHNICITIES.HMDA_ETHNICITY.HMDA_ETHNICITY_DETAIL.HMDAEthnicityType');
+
     return {
       collectionMethod: COLLECTION_MAP[dig(ext, 'ApplicationTakenMethodType')] || '',
       sex: dig(ext, 'HMDAGenderType') || '',
       sexRefused: String(dig(gmd, 'HMDAGenderRefusalIndicator')) === 'true',
       ethnicityRefused: String(dig(gmd, 'HMDAEthnicityRefusalIndicator')) === 'true',
       raceRefused: String(dig(gmd, 'HMDARaceRefusalIndicator')) === 'true',
-      races: raceList,
-      ethnicities: ethList,
+      hispanic: ethType === 'HispanicOrLatino' ? true
+              : ethType === 'NotHispanicOrLatino' ? false : undefined,
+      races: mappedRaces,
+      ethnicities: mappedEth,
     };
   });
   if (demographics.some(d => Object.keys(d).length)) {

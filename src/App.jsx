@@ -1082,6 +1082,15 @@ function FField({ label, req, children, style }) {
     {children}
   </div>;
 }
+// Display helper for read-only dollar amounts: always 2 decimals WITH
+// thousands separators (1200 -> "1,200.00"). Use everywhere a dollar
+// figure is rendered as text, so formatting stays consistent app-wide.
+function money2(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '0.00';
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 // Formats a numeric value with thousands separators for display.
 // Returns '' for empty/invalid so placeholders still show through.
 function fmtThousands(v) {
@@ -1211,9 +1220,15 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
       <FField label="Present Address Same As"><FSelect value={b.addrSameAs} onChange={e=>upd('addrSameAs',e.target.value)}><option value="">Please Select</option><option>Borrower</option><option>Co-Borrower</option></FSelect></FField>
     </div>
 
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14,maxWidth:700}}>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,marginBottom:14,maxWidth:900}}>
       <FField label="Email Address"><FInput type="email" value={b.email||''} onChange={e=>upd('email',e.target.value)} placeholder="name@example.com"/></FField>
       <FField label="Cell Phone"><FInput type="tel" value={b.cellPhone||''} onChange={e=>upd('cellPhone',e.target.value)} placeholder="(555) 555-5555"/></FField>
+      <FField label="Estimated Credit Score">
+        <FSelect value={b.estCreditScore||''} onChange={e=>upd('estCreditScore',e.target.value)}>
+          <option value="">- Select -</option>
+          {['780+','740 - 779','700 - 739','660 - 699','620 - 659','580 - 619','Below 580'].map(s=><option key={s}>{s}</option>)}
+        </FSelect>
+      </FField>
     </div>
 
     <div className="form-grid" style={{marginBottom:20}}>
@@ -1617,6 +1632,23 @@ function Section9Declarations({ data, setData, borrowers }) {
 
 function Section10GovtMonitoring({ data, setData, borrowers }) {
   const [activeB, setActiveB] = useState(0);
+  // Every input here was previously a static, unwired <input type="checkbox"/>
+  // with no checked/onChange — so imported HMDA data landed in the DB but
+  // could never display. All inputs are now bound to govtMonitoring[activeB].
+  const d = (data.govtMonitoring || [])[activeB] || {};
+  const upd = (k, v) => setData(p => {
+    const arr = [...(p.govtMonitoring || borrowers.map(() => ({})))];
+    while (arr.length < borrowers.length) arr.push({});
+    arr[activeB] = { ...arr[activeB], [k]: v };
+    return { ...p, govtMonitoring: arr };
+  });
+  // Multi-select lists (race / ethnicity detail) toggle membership.
+  const toggleIn = (k, val) => {
+    const cur = Array.isArray(d[k]) ? d[k] : [];
+    upd(k, cur.includes(val) ? cur.filter(x => x !== val) : [...cur, val]);
+  };
+  const has = (k, val) => Array.isArray(d[k]) && d[k].includes(val);
+
   return <>
     <div className="info-box-1003">ℹ The following information is requested by the Federal Government to monitor compliance with equal credit opportunity and fair housing laws. You are not required to furnish this information.</div>
     <div style={{display:'flex',borderBottom:'1px solid var(--border)',marginBottom:20}}>
@@ -1625,42 +1657,81 @@ function Section10GovtMonitoring({ data, setData, borrowers }) {
     <div className="f1003-sub-hdr" style={{margin:'0 -22px 16px'}}>Collection Method</div>
     <div className="f1003-inline-checks" style={{marginBottom:20}}>
       {['Face-to-Face (incl. Electronic Media)','Telephone Interview','Fax or Mail','Email or Internet'].map(m=>(
-        <label key={m} className="radio-row"><input type="radio" name={`demoMethod-${activeB}`}/> {m}</label>
+        <label key={m} className="radio-row">
+          <input type="radio" name={`demoMethod-${activeB}`} checked={d.collectionMethod===m} onChange={()=>upd('collectionMethod',m)}/> {m}
+        </label>
       ))}
     </div>
     <div className="demo-grid">
       <div className="demo-label">Ethnicity</div>
       <div className="demo-content">
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <label className="check-row"><input type="checkbox"/> Hispanic or Latino</label>
+          <label className="check-row">
+            <input type="checkbox" checked={d.hispanic===true} onChange={e=>upd('hispanic',e.target.checked)}/> Hispanic or Latino
+          </label>
           <div style={{paddingLeft:22,display:'flex',flexWrap:'wrap',gap:10}}>
-            {['Mexican','Puerto Rican','Cuban','Other Hispanic or Latino'].map(e=><label key={e} className="check-row"><input type="checkbox"/> {e}</label>)}
+            {['Mexican','Puerto Rican','Cuban','Other Hispanic or Latino'].map(e=>(
+              <label key={e} className="check-row">
+                <input type="checkbox" checked={has('ethnicities',e)} onChange={()=>toggleIn('ethnicities',e)}/> {e}
+              </label>
+            ))}
           </div>
-          <label className="check-row"><input type="checkbox"/> Not Hispanic or Latino</label>
-          <label className="check-row"><input type="checkbox"/> I do not wish to provide this information</label>
+          <label className="check-row">
+            <input type="checkbox" checked={d.hispanic===false} onChange={e=>upd('hispanic',e.target.checked?false:undefined)}/> Not Hispanic or Latino
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={!!d.ethnicityRefused} onChange={e=>upd('ethnicityRefused',e.target.checked)}/> I do not wish to provide this information
+          </label>
         </div>
       </div>
       <div className="demo-label">Sex</div>
       <div className="demo-content">
         <div className="f1003-inline-checks">
-          {['Female','Male','I do not wish to provide this information'].map(s=><label key={s} className="check-row"><input type="checkbox"/> {s}</label>)}
+          {['Female','Male'].map(s=>(
+            <label key={s} className="check-row">
+              <input type="checkbox" checked={d.sex===s} onChange={e=>upd('sex',e.target.checked?s:'')}/> {s}
+            </label>
+          ))}
+          <label className="check-row">
+            <input type="checkbox" checked={!!d.sexRefused} onChange={e=>upd('sexRefused',e.target.checked)}/> I do not wish to provide this information
+          </label>
         </div>
       </div>
       <div className="demo-label" style={{borderBottom:'none'}}>Race / National Origin</div>
       <div className="demo-content" style={{borderBottom:'none'}}>
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <label className="check-row"><input type="checkbox"/> American Indian or Alaska Native</label>
-          <label className="check-row"><input type="checkbox"/> Asian</label>
+          <label className="check-row">
+            <input type="checkbox" checked={has('races','AmericanIndian')} onChange={()=>toggleIn('races','AmericanIndian')}/> American Indian or Alaska Native
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={has('races','Asian')} onChange={()=>toggleIn('races','Asian')}/> Asian
+          </label>
           <div style={{paddingLeft:22,display:'flex',flexWrap:'wrap',gap:10}}>
-            {['Asian Indian','Chinese','Filipino','Vietnamese','Korean','Japanese','Other Asian'].map(r=><label key={r} className="check-row"><input type="checkbox"/> {r}</label>)}
+            {['Asian Indian','Chinese','Filipino','Vietnamese','Korean','Japanese','Other Asian'].map(r=>(
+              <label key={r} className="check-row">
+                <input type="checkbox" checked={has('races',r)} onChange={()=>toggleIn('races',r)}/> {r}
+              </label>
+            ))}
           </div>
-          <label className="check-row"><input type="checkbox"/> Black or African American</label>
-          <label className="check-row"><input type="checkbox"/> Native Hawaiian or Other Pacific Islander</label>
+          <label className="check-row">
+            <input type="checkbox" checked={has('races','BlackOrAfricanAmerican')} onChange={()=>toggleIn('races','BlackOrAfricanAmerican')}/> Black or African American
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={has('races','PacificIslander')} onChange={()=>toggleIn('races','PacificIslander')}/> Native Hawaiian or Other Pacific Islander
+          </label>
           <div style={{paddingLeft:22,display:'flex',flexWrap:'wrap',gap:10}}>
-            {['Native Hawaiian','Samoan','Guamanian or Chamorro','Other Pacific Islander'].map(r=><label key={r} className="check-row"><input type="checkbox"/> {r}</label>)}
+            {['Native Hawaiian','Samoan','Guamanian or Chamorro','Other Pacific Islander'].map(r=>(
+              <label key={r} className="check-row">
+                <input type="checkbox" checked={has('races',r)} onChange={()=>toggleIn('races',r)}/> {r}
+              </label>
+            ))}
           </div>
-          <label className="check-row"><input type="checkbox"/> White</label>
-          <label className="check-row"><input type="checkbox"/> I do not wish to provide this information</label>
+          <label className="check-row">
+            <input type="checkbox" checked={has('races','White')} onChange={()=>toggleIn('races','White')}/> White
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={!!d.raceRefused} onChange={e=>upd('raceRefused',e.target.checked)}/> I do not wish to provide this information
+          </label>
         </div>
       </div>
     </div>
@@ -1784,6 +1855,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             citizenship:   existing.citizenship     || 'us_citizen',
             email:         existing.email           || '',
             cellPhone:     existing.cell_phone      || '',
+            estCreditScore: existing.est_credit_score || '',
             maritalStatus: existing.marital_status  || '',
             numDeps:       existing.num_dependents  || '0',
             presentAddr1:  existing.address_street  || '',
@@ -1999,6 +2071,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         year_built:       parseInt(formData.spYearBuilt)  || null,
         year_acquired:    parseInt(formData.yearAcquired) || null,
         cell_phone:       borrowers[0]?.cellPhone || null,
+        est_credit_score: borrowers[0]?.estCreditScore || null,
         // Title Info (new fields)
         manner_title:     formData.mannerTitle    || null,
         title_held_in:    formData.titleHeldIn    || null,
@@ -2123,6 +2196,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           year_built:      parseInt(formData.spYearBuilt)  || null,
           year_acquired:   parseInt(formData.yearAcquired) || null,
           cell_phone:      borrowers[0]?.cellPhone || null,
+          est_credit_score: borrowers[0]?.estCreditScore || null,
           manner_title:    formData.mannerTitle    || null,
           title_held_in:   formData.titleHeldIn    || null,
           property_rights: formData.propertyRights || null,
@@ -2546,24 +2620,24 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Purchase Price *</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.salesPrice||''} onChange={e=>setFormData(p=>({...p,salesPrice:e.target.value}))} placeholder="0"/></div>
+                      <DollarInput value={formData.salesPrice} onChange={e=>setFormData(p=>({...p,salesPrice:e.target.value}))} placeholder="0"/>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Appraised Value *</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
+                      <DollarInput value={formData.appraisedVal} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/>
                     </div>
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Down Payment *</label>
                       <div style={{position:'relative'}}>
-                        <div className="dollar-wrap"><input className="form-input" style={{paddingRight:64}} type="number" value={formData.downPayment||''} onChange={e=>{
+                        <DollarInput style={{paddingRight:64}} value={formData.downPayment} placeholder="0" onChange={e=>{
                           const dp = e.target.value;
                           setFormData(p=>{
                             const price = parseFloat(p.salesPrice)||0;
                             return {...p, downPayment: dp, baseLoan: price>0 ? String((price-(parseFloat(dp)||0)).toFixed(2)) : p.baseLoan};
                           });
-                        }} placeholder="0"/></div>
+                        }}/>
                         <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text-3)'}}>
                           {formData.salesPrice && formData.downPayment && parseFloat(formData.salesPrice)>0
                             ? ((parseFloat(formData.downPayment)/parseFloat(formData.salesPrice))*100).toFixed(2)+'%' : ''}
@@ -2573,13 +2647,13 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                     <div className="form-group">
                       <label className="form-label">Base Loan Amount *</label>
                       <div style={{position:'relative'}}>
-                        <div className="dollar-wrap"><input className="form-input" style={{paddingRight:72}} type="number" value={formData.baseLoan||''} onChange={e=>{
+                        <DollarInput style={{paddingRight:72}} value={formData.baseLoan} placeholder="0" onChange={e=>{
                           const bl = e.target.value;
                           setFormData(p=>{
                             const price = parseFloat(p.salesPrice)||0;
                             return {...p, baseLoan: bl, downPayment: price>0 ? String((price-(parseFloat(bl)||0)).toFixed(2)) : p.downPayment};
                           });
-                        }} placeholder="0"/></div>
+                        }}/>
                         <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:'var(--accent)'}}>
                           {ltvBasis>0 && formData.baseLoan ? 'LTV '+((parseFloat(formData.baseLoan)/ltvBasis)*100).toFixed(2)+'%' : ''}
                         </span>
@@ -2593,12 +2667,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Appraised Value *</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.appraisedVal||''} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/></div>
+                      <DollarInput value={formData.appraisedVal} onChange={e=>setFormData(p=>({...p,appraisedVal:e.target.value}))} placeholder="0"/>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Base Loan Amount *</label>
                       <div style={{position:'relative'}}>
-                        <div className="dollar-wrap"><input className="form-input" style={{paddingRight:72}} type="number" value={formData.baseLoan||''} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/></div>
+                        <DollarInput style={{paddingRight:72}} value={formData.baseLoan} onChange={e=>setFormData(p=>({...p,baseLoan:e.target.value}))} placeholder="0"/>
                         <span style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:700,color:'var(--accent)'}}>
                           {formData.appraisedVal && formData.baseLoan && parseFloat(formData.appraisedVal)>0
                             ? 'LTV '+((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(2)+'%' : ''}
@@ -2629,7 +2703,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:24}}>
                     <div className="form-group">
                       <label className="form-label">Existing Liens Amount</label>
-                      <div className="dollar-wrap"><input className="form-input" type="number" value={formData.existingLiensAmount||''} onChange={e=>setFormData(p=>({...p,existingLiensAmount:e.target.value}))} placeholder="0"/></div>
+                      <DollarInput value={formData.existingLiensAmount} onChange={e=>setFormData(p=>({...p,existingLiensAmount:e.target.value}))} placeholder="0"/>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Refinance Program</label>
@@ -2679,10 +2753,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       <option value="120">10 Year (120 months)</option>
                     </select>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Qualifying Credit Score</label>
-                    <input className="form-input" type="number" value={formData.creditScore||''} onChange={e=>setFormData(p=>({...p,creditScore:e.target.value}))} placeholder="580–850"/>
-                  </div>
+                  {/* Credit score intentionally NOT here — it's captured once
+                      on Borrower Info as an Estimated Credit Score range,
+                      mirroring Arive. */}
                 </div>
               </div>
 
@@ -2724,7 +2797,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                           onBlur={e=>{e.target.style.borderColor='var(--border)';e.target.style.boxShadow='none'}}
                         />
                       </div>
-                      <span style={{fontSize:14,fontWeight:700,color:'var(--text)',textAlign:'right'}}>{effectivePI?'$'+effectivePI.toFixed(2):'--'}</span>
+                      <span style={{fontSize:14,fontWeight:700,color:'var(--text)',textAlign:'right'}}>{effectivePI?'$'+money2(effectivePI):'--'}</span>
                     </div>
                   );
                 })()}
@@ -2752,7 +2825,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       />
                     </div>
                     <span style={{fontSize:14,fontWeight:600,color:'var(--text)',textAlign:'right'}}>
-                      {formData[key]?'$'+parseFloat(formData[key]).toFixed(2):'--'}
+                      {formData[key]?'$'+money2(formData[key]):'--'}
                     </span>
                   </div>
                 ))}
@@ -2792,7 +2865,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',background:'var(--cream)'}}>
                       <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>Total PITI</span>
                       <span style={{fontSize:18,fontWeight:700,color:'var(--accent)'}}>
-                        {total>0?'$'+total.toFixed(2):'--'}
+                        {total>0?'$'+money2(total):'--'}
                       </span>
                     </div>
                   );
@@ -2865,7 +2938,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
                   <div className="form-group"><label className="form-label">Acreage</label><input className="form-input" type="number" step="0.01" value={formData.acreage||''} onChange={e=>setFormData(p=>({...p,acreage:e.target.value}))} placeholder="acres"/></div>
-                  <div className="form-group"><label className="form-label">Original Cost</label><div className="dollar-wrap"><input className="form-input" type="number" value={formData.origCost||''} onChange={e=>setFormData(p=>({...p,origCost:e.target.value}))}/></div></div>
+                  <div className="form-group"><label className="form-label">Original Cost</label><DollarInput value={formData.origCost} onChange={e=>setFormData(p=>({...p,origCost:e.target.value}))}/></div>
                 </div>
               </div>
             </div>
@@ -2905,7 +2978,14 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
               </div>
               <div className="form-group form-full">
                 <label className="form-label">Vesting To Read</label>
-                <textarea className="form-textarea" value={formData.vestingRead||''} onChange={e=>setFormData(p=>({...p,vestingRead:e.target.value}))} rows={3}/>
+                <select className="form-select" value={formData.vestingRead||''} onChange={e=>setFormData(p=>({...p,vestingRead:e.target.value}))}>
+                  <option value="">- Select -</option>
+                  {['A Husband And Wife','A Married Couple','A Married Man','A Married Person','A Married Woman',
+                    'An Unmarried Man','An Unmarried Person','An Unmarried Woman','A Same Sex Married Couple',
+                    'As Domestic Partners','A Single Man','A Single Person','A Single Woman','A Widow','A Widower',
+                    'A Wife And Husband','Her Husband','His Wife','Joined In A Civil Union',
+                    'Joined In A Common Law Marriage','Not Applicable','Other'].map(v=><option key={v}>{v}</option>)}
+                </select>
               </div>
             </div>
           </>}
@@ -3001,7 +3081,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           </div>
 
           <div style={{marginBottom:28}}>
-            <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:16}}>Real Estate Owned</div>
+            <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:16,display:'flex',alignItems:'center',gap:10}}>
+              <span>Real Estate Owned</span>
+              <span style={{color:'var(--accent)'}}>
+                ${money2((formData.reos||[]).reduce((a,r)=>a+(parseFloat(r.marketValue)||0),0))}
+              </span>
+            </div>
             <Section5REO data={formData} setData={setFormData}/>
           </div>
         </>}
@@ -3063,7 +3148,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                     <div style={{width:130,textAlign:'right',paddingRight:8,fontSize:13,fontWeight:700,
                       textDecorationLine:secTotal>0?'underline':'none',textDecorationStyle:'dotted',
                       color:secTotal>0?'var(--text)':'#b0b7c3'}}>
-                      {secTotal>0?'$'+secTotal.toFixed(2):'$0.00'}
+                      {secTotal>0?'$'+money2(secTotal):'$0.00'}
                     </div>
                     <div style={{width:130}}/>
                     <div style={{width:80}}/>
@@ -3117,7 +3202,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                                 color:parseFloat(fee.at_closing)<0?'#b91c1c':(parseFloat(fee.at_closing)?'var(--text)':'#b0b7c3'),
                                 fontWeight:parseFloat(fee.at_closing)?500:400}}>
                               {parseFloat(fee.at_closing)
-                                ? (parseFloat(fee.at_closing)<0?'−':'')+'$'+Math.abs(parseFloat(fee.at_closing||0)).toFixed(2)
+                                ? (parseFloat(fee.at_closing)<0?'−':'')+'$'+money2(Math.abs(parseFloat(fee.at_closing||0)))
                                 : '$0.00'}
                             </span>
                         }
@@ -3138,7 +3223,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                                 color:parseFloat(fee.before_closing)?'var(--text)':'#b0b7c3',
                                 fontWeight:parseFloat(fee.before_closing)?500:400}}>
                               {parseFloat(fee.before_closing)
-                                ? '$'+Math.abs(parseFloat(fee.before_closing)).toFixed(2)
+                                ? '$'+money2(Math.abs(parseFloat(fee.before_closing)))
                                 : '$0.00'}
                             </span>
                         }
@@ -3206,7 +3291,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
                     <span style={{color:'var(--text-2)'}}>Total Closing Costs</span>
-                    <span style={{fontWeight:600}}>${totalClosingCosts.toFixed(2)}</span>
+                    <span style={{fontWeight:600}}>${money2(totalClosingCosts)}</span>
                   </div>
                   {[
                     ['Closing Costs Financed (Paid from your loan amount)','closing_costs_financed',false],
@@ -3222,12 +3307,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   ))}
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',borderBottom:'1px solid var(--border-light)',fontSize:14}}>
                     <span style={{color:'var(--text-2)'}}>Down Payment / Funds from Borrower</span>
-                    <span style={{fontWeight:500}}>${downPayment.toFixed(2)}</span>
+                    <span style={{fontWeight:500}}>${money2(downPayment)}</span>
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',background:'var(--cream)'}}>
                     <span style={{fontSize:16,fontWeight:700,color:'var(--text)'}}>Cash from Borrower</span>
                     <span style={{fontSize:18,fontWeight:700,color:cashFromBorrower<0?'#15803d':'var(--accent)'}}>
-                      {cashFromBorrower<0?'−':''}${Math.abs(cashFromBorrower).toFixed(2)}
+                      {cashFromBorrower<0?'−':''}${money2(Math.abs(cashFromBorrower))}
                     </span>
                   </div>
                 </div>
@@ -3253,7 +3338,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 border:'1px solid rgba(255,255,255,.08)'}}>
                 <span style={{color:'#94a3b8',fontSize:13}}>Cash from Borrower :</span>
                 <span style={{color:'#60a5fa',fontSize:16,fontWeight:700}}>
-                  {cashFromBorrower<0?'−':''}${Math.abs(cashFromBorrower).toFixed(2)}
+                  {cashFromBorrower<0?'−':''}${money2(Math.abs(cashFromBorrower))}
                 </span>
                 <button style={{background:'rgba(37,99,235,.25)',border:'1px solid #3b82f6',
                   color:'#93c5fd',borderRadius:6,padding:'3px 10px',fontSize:12,cursor:'pointer',fontWeight:600}}>
