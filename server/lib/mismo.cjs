@@ -683,21 +683,67 @@ ${closingInfoXml}${urlaXml}${housingXml}
   // RESIDENCES — the borrower's current address + how they occupy it.
   // Arive reads occupancy ("Own"/"Rent") from here; without this block its
   // Current Address and Occupancy fields import blank.
-  const residencesXml = (form1003.address_street || form1003.address_city) ? `
-                <RESIDENCES>
+  // Arive stores time-at-residence in MONTHS
+  // (BorrowerResidencyDurationMonthsCount); Jammie stores it as decimal
+  // YEARS in current_how_long_addr (2.5 = 2yr 6mo). Without this element
+  // Arive's "Years Spent" imports as 0.
+  const yearsToMonths = y => {
+    const n = parseFloat(y);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 12) : null;
+  };
+  // Ownership comes from `housing`, which is what the Address History
+  // dropdown actually writes to (the `own_rent` column added earlier
+  // duplicated it and is no longer read).
+  const residencyBasis = h => {
+    const s = String(h || '').toLowerCase();
+    if (s.includes('rent free')) return 'LiveRentFree';
+    if (s.includes('rent')) return 'Rent';
+    if (s.includes('own')) return 'Own';
+    return null;
+  };
+
+  const buildResidence = (a, type) => {
+    const zip = a.zip ? String(a.zip).replace(/\D/g, '') : null;
+    const basis = residencyBasis(a.own);
+    const months = yearsToMonths(a.years);
+    return `
                   <RESIDENCE>
                     <ADDRESS>
-                      ${tag('AddressLineText', [form1003.address_num, form1003.address_street].filter(Boolean).join(' '))}
-                      ${tag('CityName', form1003.address_city)}
+                      ${tag('AddressLineText', a.addr1)}
+                      ${tag('AddressUnitIdentifier', a.unit)}
+                      ${tag('CityName', a.city)}
                       <CountryCode>US</CountryCode>
-                      ${tag('PostalCode', form1003.address_zip ? String(form1003.address_zip).replace(/\D/g,'') : null)}
-                      ${tag('StateCode', stateCode(form1003.address_state))}
+                      ${tag('PostalCode', zip)}
+                      ${tag('StateCode', stateCode(a.state))}
                     </ADDRESS>
                     <RESIDENCE_DETAIL>
-                      <BorrowerResidencyBasisType>${esc(form1003.own_rent === 'Rent' ? 'Rent' : 'Own')}</BorrowerResidencyBasisType>
-                      <BorrowerResidencyType>Current</BorrowerResidencyType>
+                      ${basis ? tag('BorrowerResidencyBasisType', basis) : ''}
+                      ${tag('BorrowerResidencyDurationMonthsCount', months)}
+                      <BorrowerResidencyType>${esc(type)}</BorrowerResidencyType>
                     </RESIDENCE_DETAIL>
-                  </RESIDENCE>
+                  </RESIDENCE>`;
+  };
+
+  const prevAddresses = safeParseJsonArray(form1003.prev_addresses_json);
+  const currentResidence = (form1003.address_street || form1003.address_city)
+    ? buildResidence({
+        addr1: [form1003.address_num, form1003.address_street].filter(Boolean).join(' '),
+        city: form1003.address_city,
+        state: form1003.address_state,
+        zip: form1003.address_zip,
+        years: form1003.current_how_long_addr,
+        own: form1003.housing,
+      }, 'Current')
+    : '';
+  // Prior residences give Arive the 2-year history it requires when the
+  // borrower hasn't been at their current address long enough.
+  const priorResidences = prevAddresses
+    .filter(a => a && (a.addr1 || a.city))
+    .map(a => buildResidence(a, 'Prior'))
+    .join('');
+
+  const residencesXml = (currentResidence || priorResidences) ? `
+                <RESIDENCES>${currentResidence}${priorResidences}
                 </RESIDENCES>` : '';
 
   const borrowerParties = [];
@@ -1169,10 +1215,43 @@ function parseMismoXml(xmlString) {
     // Was entirely unmapped — every import defaulted to U.S. Citizen
     // regardless of the file's actual value. Jammie's radio buttons use
     // short codes, not MISMO's CamelCase enum.
-    // How the borrower occupies their CURRENT address (Own/Rent) —
-    // distinct from the subject property's occupancy.
-    const residencyBasis = dig(primary, 'ROLES.ROLE.BORROWER.RESIDENCES.RESIDENCE.RESIDENCE_DETAIL.BorrowerResidencyBasisType');
-    if (residencyBasis) form1003.own_rent = residencyBasis === 'Rent' ? 'Rent' : residencyBasis === 'LiveRentFree' ? 'Live Rent Free' : 'Own';
+    // ── RESIDENCES: current + prior address history ──
+    // Ownership goes to `housing` (what the Address History dropdown reads);
+    // duration converts months -> decimal years for current_how_long_addr.
+    const BASIS_TO_JAMMIE = { Rent: 'Rent', LiveRentFree: 'Living Rent Free', Own: 'Own' };
+    const monthsToYears = m => {
+      const n = Number(m);
+      return Number.isFinite(n) && n > 0 ? Math.round((n / 12) * 100) / 100 : null;
+    };
+    let residenceNodes = dig(primary, 'ROLES.ROLE.BORROWER.RESIDENCES.RESIDENCE');
+    if (residenceNodes && !Array.isArray(residenceNodes)) residenceNodes = [residenceNodes];
+    const priorAddresses = [];
+    (residenceNodes || []).forEach(res => {
+      const type = dig(res, 'RESIDENCE_DETAIL.BorrowerResidencyType');
+      const basis = dig(res, 'RESIDENCE_DETAIL.BorrowerResidencyBasisType');
+      const months = dig(res, 'RESIDENCE_DETAIL.BorrowerResidencyDurationMonthsCount');
+      if (type === 'Prior') {
+        priorAddresses.push({
+          addr1: dig(res, 'ADDRESS.AddressLineText') || '',
+          unit: dig(res, 'ADDRESS.AddressUnitIdentifier') || '',
+          city: dig(res, 'ADDRESS.CityName') || '',
+          state: stateNameFromCode(dig(res, 'ADDRESS.StateCode')) || '',
+          zip: dig(res, 'ADDRESS.PostalCode') || '',
+          country: 'United States',
+          years: monthsToYears(months) ?? '',
+          own: BASIS_TO_JAMMIE[basis] || '',
+        });
+      } else {
+        if (basis) {
+          form1003.housing = BASIS_TO_JAMMIE[basis] || 'Own';
+          // own_rent kept in sync for any legacy reader; `housing` is canonical.
+          form1003.own_rent = form1003.housing;
+        }
+        const yrs = monthsToYears(months);
+        if (yrs !== null) form1003.current_how_long_addr = yrs;
+      }
+    });
+    if (priorAddresses.length) form1003.prev_addresses_json = JSON.stringify(priorAddresses);
 
     const citizenshipType = dig(primary, 'ROLES.ROLE.BORROWER.DECLARATION.DECLARATION_DETAIL.CitizenshipResidencyType');
     const CITIZENSHIP_MAP = {

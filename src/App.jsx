@@ -1252,7 +1252,11 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
     <div className="f1003-sub-hdr" style={{margin:'0 -22px 18px'}}>Address History</div>
     <div className="form-section-title" style={{marginTop:0}}>Present Address</div>
     <AddrBlock data={presentObj} onChange={updPresent}/>
-    {needsPrev && <div className="warning-box" style={{marginTop:12}}>⚠ Less than 2 years at present address — previous address required.</div>}
+
+    {needsPrev && <div style={{marginTop:12,marginBottom:14,display:'flex',alignItems:'center',gap:6,color:'#dc2626',fontSize:13,fontWeight:500}}>
+      <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:16,height:16,borderRadius:'50%',background:'#dc2626',color:'#fff',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
+      Minimum 2 years of address history required
+    </div>}
     {(needsPrev || b.prevAddresses.length > 0) && <>
       <div className="form-section-title">Previous Address Details</div>
       {b.prevAddresses.map((prev,pi)=>(
@@ -1861,6 +1865,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             citizenship:   existing.citizenship     || 'us_citizen',
             email:         existing.email           || '',
             cellPhone:     existing.cell_phone      || '',
+            prevAddresses: (()=>{ try { const a=JSON.parse(existing.prev_addresses_json||'[]'); return Array.isArray(a)?a:[]; } catch { return []; } })(),
             estCreditScore: existing.est_credit_score || '',
             maritalStatus: existing.marital_status  || '',
             numDeps:       existing.num_dependents  || '0',
@@ -2090,6 +2095,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         year_acquired:    parseInt(formData.yearAcquired) || null,
         cell_phone:       borrowers[0]?.cellPhone || null,
         est_credit_score: borrowers[0]?.estCreditScore || null,
+        prev_addresses_json: JSON.stringify(b.prevAddresses || []),
         // Title Info (new fields)
         manner_title:     formData.mannerTitle    || null,
         title_held_in:    formData.titleHeldIn    || null,
@@ -2220,6 +2226,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           year_acquired:   parseInt(formData.yearAcquired) || null,
           cell_phone:      borrowers[0]?.cellPhone || null,
           est_credit_score: borrowers[0]?.estCreditScore || null,
+          prev_addresses_json: JSON.stringify(b.prevAddresses || []),
           manner_title:    formData.mannerTitle    || null,
           title_held_in:   formData.titleHeldIn    || null,
           property_rights: formData.propertyRights || null,
