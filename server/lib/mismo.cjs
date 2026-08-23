@@ -226,6 +226,7 @@ function buildMismoXml({ loan, form1003, fees }) {
 
   const liabilities = safeParseJsonArray(form1003.liabilities_json);
   const assets = safeParseJsonArray(form1003.assets_json);
+  const reoCount = safeParseJsonArray(form1003.reos_json).length;
   const hasPrimaryBorrower = !!(form1003.first_nm || form1003.last_nm);
 
   // Tracks every xlink:from/xlink:to link needed for RELATIONSHIPS,
@@ -237,17 +238,57 @@ function buildMismoXml({ loan, form1003, fees }) {
   // Jammie's schema has no columns for square footage, year built (as
   // a structured value), appraised value detail, etc. Flagged as a
   // known gap, not silently faked.
+  // Reverse maps: Jammie stores spaced display labels; MISMO expects
+  // CamelCase enums. Mirrors the import-side maps.
+  const CONSTRUCTION_TO_MISMO = { 'Site Built':'SiteBuilt', 'Manufactured':'Manufactured', 'Modular':'Modular', 'On Frame Modular':'OnFrameModular' };
+  const OCCUPANCY_TO_MISMO = { 'Primary Residence':'PrimaryResidence', 'Second Home':'SecondHome', 'Investment':'Investment' };
+  const ESTATE_TO_MISMO = { 'Fee Simple':'FeeSimple', 'Leasehold':'Leasehold' };
+
+  // Subject property address: prefer the STRUCTURED parts from form_1003
+  // (sp_city/sp_state/sp_zip/sp_county). loans.subject_property is a single
+  // display string — exporting it alone as AddressLineText is what made
+  // Arive show City/State/ZIP/County blank on import.
+  const spLine = form1003.sp_addr1 || loan.subject_property;
+  // ZIP may be stored as "30188-4676"; MISMO wants digits only.
+  const spZipDigits = form1003.sp_zip ? String(form1003.sp_zip).replace(/\D/g, '') : null;
+  // County round-trips as a bare name ("Cherokee"); MISMO convention
+  // includes the suffix, matching what real Arive exports contain.
+  const spCounty = form1003.sp_county
+    ? (/county$/i.test(form1003.sp_county) ? form1003.sp_county : `${form1003.sp_county} County`)
+    : null;
+
+  const propertyDetailInner = [
+    tag('PropertyEstimatedValueAmount', money(loan.appraised_value)),
+    tag('PropertyExistingLienAmount', money(loan.existing_liens_amount)),
+    tag('FinancedUnitCount', form1003.num_units),
+    tag('AttachmentType', form1003.attachment_type),
+    form1003.construction_method ? tag('ConstructionMethodType', CONSTRUCTION_TO_MISMO[form1003.construction_method] || form1003.construction_method) : '',
+    form1003.occupancy ? tag('PropertyUsageType', OCCUPANCY_TO_MISMO[form1003.occupancy] || form1003.occupancy) : '',
+    form1003.property_rights ? tag('PropertyEstateType', ESTATE_TO_MISMO[form1003.property_rights] || form1003.property_rights) : '',
+    tag('PropertyStructureBuiltYear', form1003.year_built),
+    tag('PropertyAcquiredYear', form1003.year_acquired),
+    tag('LotSizeAcreageNumber', form1003.acreage),
+    tag('PropertyOriginalCostAmount', money(form1003.orig_cost)),
+    form1003.prop_type === 'Condominium' ? '<PropertyInProjectIndicator>true</PropertyInProjectIndicator>' : '',
+    form1003.prop_type === 'PUD' ? '<PUDIndicator>true</PUDIndicator>' : '',
+  ].filter(Boolean).join('\n              ');
+
   const collateralXml = `
       <COLLATERALS>
         <COLLATERAL>
           <SUBJECT_PROPERTY SequenceNumber="1">
             <ADDRESS>
-              ${tag('AddressLineText', loan.subject_property)}
+              ${tag('AddressLineText', spLine)}
+              ${tag('AddressUnitIdentifier', form1003.sp_unit)}
+              ${tag('CityName', form1003.sp_city)}
               <CountryCode>US</CountryCode>
-            </ADDRESS>${loan.appraised_value ? `
+              ${tag('CountyName', spCounty)}
+              ${tag('PostalCode', spZipDigits)}
+              ${tag('StateCode', stateCode(form1003.sp_state))}
+            </ADDRESS>${propertyDetailInner ? `
             <PROPERTY_DETAIL>
-              ${tag('PropertyEstimatedValueAmount', money(loan.appraised_value))}
-            </PROPERTY_DETAIL>
+              ${propertyDetailInner}
+            </PROPERTY_DETAIL>` : ''}${loan.appraised_value ? `
             <PROPERTY_VALUATIONS>
               <PROPERTY_VALUATION>
                 <PROPERTY_VALUATION_DETAIL>
@@ -300,8 +341,8 @@ function buildMismoXml({ loan, form1003, fees }) {
                     <ADDRESS>
                       ${tag('AddressLineText', form1003.business_street)}
                       ${tag('CityName', form1003.business_city)}
-                      ${tag('StateCode', stateCode(form1003.business_state))}
                       <CountryCode>US</CountryCode>
+                      ${tag('StateCode', stateCode(form1003.business_state))}
                     </ADDRESS>
                     <EMPLOYMENT>
                       ${tag('EmploymentPositionDescription', form1003.position_title)}
@@ -346,6 +387,35 @@ function buildMismoXml({ loan, form1003, fees }) {
               <HousingExpenseTimingType>Proposed</HousingExpenseTimingType>
               <HousingExpenseType>${esc(type)}</HousingExpenseType>
             </HOUSING_EXPENSE>`).join('');
+  // CLOSING_INFORMATION + URLA totals — written to the same locations the
+  // import reads them from, so the closing figures round-trip.
+  const closingInfoXml = (loan.cash_to_borrower || loan.lender_credit_amount) ? `
+          <CLOSING_INFORMATION>${loan.lender_credit_amount ? `
+            <CLOSING_ADJUSTMENT_ITEMS>
+              <CLOSING_ADJUSTMENT_ITEM>
+                <CLOSING_ADJUSTMENT_ITEM_DETAIL>
+                  ${tag('ClosingAdjustmentItemAmount', money(loan.lender_credit_amount))}
+                  <ClosingAdjustmentItemType>LenderCredit</ClosingAdjustmentItemType>
+                </CLOSING_ADJUSTMENT_ITEM_DETAIL>
+              </CLOSING_ADJUSTMENT_ITEM>
+            </CLOSING_ADJUSTMENT_ITEMS>` : ''}${loan.cash_to_borrower ? `
+            <CLOSING_INFORMATION_DETAIL>
+              ${tag('CashToBorrowerAtClosingAmount', money(loan.cash_to_borrower))}
+            </CLOSING_INFORMATION_DETAIL>` : ''}
+          </CLOSING_INFORMATION>` : '';
+
+  const urlaXml = (loan.estimated_closing_costs || loan.prepaid_items_estimated) ? `
+          <DOCUMENT_SPECIFIC_DATA_SETS>
+            <DOCUMENT_SPECIFIC_DATA_SET>
+              <URLA>
+                <URLA_DETAIL>
+                  ${tag('EstimatedClosingCostsAmount', money(loan.estimated_closing_costs))}
+                  ${tag('PrepaidItemsEstimatedAmount', money(loan.prepaid_items_estimated))}
+                </URLA_DETAIL>
+              </URLA>
+            </DOCUMENT_SPECIFIC_DATA_SET>
+          </DOCUMENT_SPECIFIC_DATA_SETS>` : '';
+
   const housingXml = housingExpensesXml ? `
           <HOUSING_EXPENSES>${housingExpensesXml}
           </HOUSING_EXPENSES>` : '';
@@ -362,12 +432,26 @@ function buildMismoXml({ loan, form1003, fees }) {
               <LoanAmortizationPeriodType>Month</LoanAmortizationPeriodType>
             </AMORTIZATION_RULE>
           </AMORTIZATION>
+${closingInfoXml}${urlaXml}${housingXml}
+          <LOAN_DETAIL>
+            ${tag('ApplicationReceivedDate', dateOnly(loan.created_at) || dateOnly(new Date()))}
+            <BalloonIndicator>false</BalloonIndicator>
+            <BelowMarketSubordinateFinancingIndicator>false</BelowMarketSubordinateFinancingIndicator>
+            <BuydownTemporarySubsidyFundingIndicator>false</BuydownTemporarySubsidyFundingIndicator>
+            <ConstructionLoanIndicator>false</ConstructionLoanIndicator>
+            <ConversionOfContractForDeedIndicator>false</ConversionOfContractForDeedIndicator>
+            ${tag('InitialFixedPeriodEffectiveMonthsCount', loan.amort_term || 360)}
+            <InterestOnlyIndicator>false</InterestOnlyIndicator>
+            <NegativeAmortizationIndicator>false</NegativeAmortizationIndicator>
+            <PrepaymentPenaltyIndicator>false</PrepaymentPenaltyIndicator>
+            ${tag('TotalMortgagedPropertiesCount', reoCount)}
+          </LOAN_DETAIL>
           <LOAN_IDENTIFIERS>
             <LOAN_IDENTIFIER>
               ${tag('LoanIdentifier', numericLoanId)}
               <LoanIdentifierType>LenderLoan</LoanIdentifierType>
             </LOAN_IDENTIFIER>
-          </LOAN_IDENTIFIERS>${housingXml}${refinanceXml}
+          </LOAN_IDENTIFIERS>${refinanceXml}
           <TERMS_OF_LOAN>
             ${tag('BaseLoanAmount', money(loan.loan_amount))}
             <LienPriorityType>${esc(lienPriorityType(loan.lien_position))}</LienPriorityType>
@@ -407,13 +491,221 @@ function buildMismoXml({ loan, form1003, fees }) {
         </LOAN>
       </LOANS>`;
 
+  // ---- Sections Jammie has no data for, emitted with conservative
+  // defaults so the file is structurally complete for Arive/DU. Every
+  // indicator defaults to false (the safe "not applicable" answer);
+  // MILITARY_SERVICE is deliberately an empty element, exactly as the
+  // real Arive export emits it when there's no military service. ----
+  const counselingXml = `
+                <COUNSELING>
+                  <COUNSELING_EVENTS>
+                    <COUNSELING_EVENT>
+                      <COUNSELING_EVENT_DETAIL>
+                        <CounselingConfirmationIndicator>false</CounselingConfirmationIndicator>
+                        <CounselingType>Education</CounselingType>
+                      </COUNSELING_EVENT_DETAIL>
+                    </COUNSELING_EVENT>
+                    <COUNSELING_EVENT>
+                      <COUNSELING_EVENT_DETAIL>
+                        <CounselingConfirmationIndicator>false</CounselingConfirmationIndicator>
+                        <CounselingType>Counseling</CounselingType>
+                      </COUNSELING_EVENT_DETAIL>
+                    </COUNSELING_EVENT>
+                  </COUNSELING_EVENTS>
+                </COUNSELING>`;
+
+  const militaryServicesXml = `
+                <MILITARY_SERVICES>
+                  <MILITARY_SERVICE/>
+                </MILITARY_SERVICES>`;
+
   // ---- PARTIES ----
+  // Helper blocks below cover data Jammie imports but previously never
+  // exported — email/phone, citizenship, declarations, demographics and
+  // current-residence occupancy. Their absence is why Arive showed those
+  // fields blank when importing a Jammie-generated file.
+
+  // CONTACT_POINTS — email and phones
+  const contactPointsXml = (() => {
+    const pts = [];
+    if (form1003.email) pts.push(`
+              <CONTACT_POINT>
+                <CONTACT_POINT_EMAIL>
+                  ${tag('ContactPointEmailValue', form1003.email)}
+                </CONTACT_POINT_EMAIL>
+                <CONTACT_POINT_DETAIL>
+                  <ContactPointRoleType>Home</ContactPointRoleType>
+                </CONTACT_POINT_DETAIL>
+              </CONTACT_POINT>`);
+    const addPhone = (value, role) => {
+      if (!value) return;
+      const digits = String(value).replace(/\D/g, '');
+      if (!digits) return;
+      pts.push(`
+              <CONTACT_POINT>
+                <CONTACT_POINT_TELEPHONE>
+                  <ContactPointTelephoneValue>${esc(digits)}</ContactPointTelephoneValue>
+                </CONTACT_POINT_TELEPHONE>
+                <CONTACT_POINT_DETAIL>
+                  <ContactPointRoleType>${esc(role)}</ContactPointRoleType>
+                </CONTACT_POINT_DETAIL>
+              </CONTACT_POINT>`);
+    };
+    addPhone(form1003.cell_phone, 'Mobile');
+    addPhone(form1003.phone, 'Home');
+    return pts.length ? `
+            <CONTACT_POINTS>${pts.join('')}
+            </CONTACT_POINTS>` : '';
+  })();
+
+  // DECLARATION — citizenship/residency plus the 16 URLA answers
+  const CITIZENSHIP_TO_MISMO = {
+    us_citizen: 'USCitizen',
+    perm_resident: 'PermanentResidentAlien',
+    non_perm: 'NonPermanentResidentAlien',
+    foreign: 'ForeignNational',
+  };
+  const declArr = safeParseJsonArray(form1003.declarations_json);
+  const ynOut = v => {
+    const s = String(v || '').toLowerCase();
+    if (s === 'yes') return 'true';
+    if (s === 'no') return 'false';
+    return null;
+  };
+  const declarationXml = (() => {
+    const d0 = declArr[0] || {};
+    const citizenship = form1003.citizenship ? CITIZENSHIP_TO_MISMO[form1003.citizenship] : null;
+    // CRITICAL: MISMO 3.4 declares DECLARATION_DETAIL as an xs:sequence with
+    // its children in ALPHABETICAL order. Emitting them in URLA question
+    // order (A, A1, C, D1...) makes a strict validator reject the entire
+    // block — which is exactly why Arive showed Declarations blank. Keep
+    // this list alphabetical; the URLA letter is noted per line instead.
+    const parts = [
+      tag('BankruptcyIndicator', ynOut(d0.M)),                                   // M
+      citizenship ? tag('CitizenshipResidencyType', citizenship) : '',
+      // These two are Yes/No enums, not boolean indicators
+      d0.A1 ? tag('HomeownerPastThreeYearsType', String(d0.A1).toLowerCase() === 'yes' ? 'Yes' : 'No') : '',  // A1
+      d0.A ? tag('IntentToOccupyType', String(d0.A).toLowerCase() === 'yes' ? 'Yes' : 'No') : '',             // A
+      tag('OutstandingJudgmentsIndicator', ynOut(d0.G)),                         // G
+      tag('PartyToLawsuitIndicator', ynOut(d0.I)),                               // I
+      tag('PresentlyDelinquentIndicator', ynOut(d0.H)),                          // H
+      tag('PriorPropertyDeedInLieuConveyedIndicator', ynOut(d0.J)),              // J
+      tag('PriorPropertyForeclosureCompletedIndicator', ynOut(d0.L)),            // L
+      tag('PriorPropertyShortSaleCompletedIndicator', ynOut(d0.K)),              // K
+      tag('PropertyProposedCleanEnergyLienIndicator', ynOut(d0.E)),              // E
+      tag('UndisclosedBorrowedFundsIndicator', ynOut(d0.C)),                     // C
+      tag('UndisclosedComakerOfNoteIndicator', ynOut(d0.F)),                     // F
+      tag('UndisclosedCreditApplicationIndicator', ynOut(d0.D2)),                // D2
+      tag('UndisclosedMortgageApplicationIndicator', ynOut(d0.D1)),              // D1
+    ].filter(Boolean).join('\n                    ');
+    const sellerRel = ynOut(d0.B);
+    return parts || sellerRel ? `
+                <DECLARATION>
+                  <DECLARATION_DETAIL>
+                    ${parts}${sellerRel ? `
+                    <EXTENSION>
+                      <OTHER>
+                        <ULAD:DECLARATION_DETAIL_EXTENSION>
+                          <ULAD:SpecialBorrowerSellerRelationshipIndicator>${esc(sellerRel)}</ULAD:SpecialBorrowerSellerRelationshipIndicator>
+                        </ULAD:DECLARATION_DETAIL_EXTENSION>
+                      </OTHER>
+                    </EXTENSION>` : ''}
+                  </DECLARATION_DETAIL>
+                </DECLARATION>` : '';
+  })();
+
+  // GOVERNMENT_MONITORING — HMDA demographics
+  const demoArr = safeParseJsonArray(form1003.demographics_json);
+  const COLLECTION_TO_MISMO = {
+    'Face-to-Face (incl. Electronic Media)': 'FaceToFace',
+    'Telephone Interview': 'Telephone',
+    'Fax or Mail': 'Mail',
+    'Email or Internet': 'Internet',
+  };
+  const RACE_TO_MISMO = {
+    White: 'White', BlackOrAfricanAmerican: 'BlackOrAfricanAmerican',
+    AmericanIndian: 'AmericanIndianOrAlaskaNative', Asian: 'Asian',
+    PacificIslander: 'NativeHawaiianOrOtherPacificIslander',
+    'Asian Indian': 'AsianIndian', Chinese: 'Chinese', Filipino: 'Filipino',
+    Vietnamese: 'Vietnamese', Korean: 'Korean', Japanese: 'Japanese',
+    'Other Asian': 'OtherAsian', 'Native Hawaiian': 'NativeHawaiian',
+    Samoan: 'Samoan', 'Guamanian or Chamorro': 'GuamanianOrChamorro',
+    'Other Pacific Islander': 'OtherPacificIslander',
+  };
+  const ETHNICITY_TO_MISMO = {
+    Mexican: 'Mexican', 'Puerto Rican': 'PuertoRican', Cuban: 'Cuban',
+    'Other Hispanic or Latino': 'OtherHispanicOrLatino',
+  };
+  const govtMonitoringXml = (() => {
+    const g = demoArr[0];
+    if (!g || !Object.keys(g).length) return '';
+    const races = (g.races || []).map(r => `
+                    <HMDA_RACE>
+                      <HMDA_RACE_DETAIL>
+                        <HMDARaceType>${esc(RACE_TO_MISMO[r] || r)}</HMDARaceType>
+                      </HMDA_RACE_DETAIL>
+                    </HMDA_RACE>`).join('');
+    const eths = (g.ethnicities || []).map(e => `
+                    <HMDA_ETHNICITY_ORIGIN>
+                      <HMDAEthnicityOriginType>${esc(ETHNICITY_TO_MISMO[e] || e)}</HMDAEthnicityOriginType>
+                    </HMDA_ETHNICITY_ORIGIN>`).join('');
+    const ethType = g.hispanic === true ? 'HispanicOrLatino'
+                  : g.hispanic === false ? 'NotHispanicOrLatino' : null;
+    return `
+                <GOVERNMENT_MONITORING>
+                  <GOVERNMENT_MONITORING_DETAIL>
+                    ${tag('HMDAEthnicityRefusalIndicator', g.ethnicityRefused ? 'true' : 'false')}
+                    ${tag('HMDAGenderRefusalIndicator', g.sexRefused ? 'true' : 'false')}
+                    ${tag('HMDARaceRefusalIndicator', g.raceRefused ? 'true' : 'false')}
+                    <EXTENSION>
+                      <OTHER>
+                        <ULAD:GOVERNMENT_MONITORING_DETAIL_EXTENSION>
+                          ${g.sex ? `<ULAD:HMDAGenderType>${esc(g.sex)}</ULAD:HMDAGenderType>` : ''}
+                          ${g.collectionMethod ? `<ULAD:ApplicationTakenMethodType>${esc(COLLECTION_TO_MISMO[g.collectionMethod] || g.collectionMethod)}</ULAD:ApplicationTakenMethodType>` : ''}
+                        </ULAD:GOVERNMENT_MONITORING_DETAIL_EXTENSION>
+                      </OTHER>
+                    </EXTENSION>
+                  </GOVERNMENT_MONITORING_DETAIL>${ethType ? `
+                  <HMDA_ETHNICITIES>
+                    <HMDA_ETHNICITY>
+                      <HMDA_ETHNICITY_DETAIL>
+                        <HMDAEthnicityType>${esc(ethType)}</HMDAEthnicityType>
+                      </HMDA_ETHNICITY_DETAIL>
+                    </HMDA_ETHNICITY>
+                  </HMDA_ETHNICITIES>` : ''}${eths ? `
+                  <HMDA_ETHNICITY_ORIGINS>${eths}
+                  </HMDA_ETHNICITY_ORIGINS>` : ''}${races ? `
+                  <HMDA_RACES>${races}
+                  </HMDA_RACES>` : ''}
+                </GOVERNMENT_MONITORING>`;
+  })();
+
+  // RESIDENCES — the borrower's current address + how they occupy it.
+  // Arive reads occupancy ("Own"/"Rent") from here; without this block its
+  // Current Address and Occupancy fields import blank.
+  const residencesXml = (form1003.address_street || form1003.address_city) ? `
+                <RESIDENCES>
+                  <RESIDENCE>
+                    <ADDRESS>
+                      ${tag('AddressLineText', [form1003.address_num, form1003.address_street].filter(Boolean).join(' '))}
+                      ${tag('CityName', form1003.address_city)}
+                      <CountryCode>US</CountryCode>
+                      ${tag('PostalCode', form1003.address_zip ? String(form1003.address_zip).replace(/\D/g,'') : null)}
+                      ${tag('StateCode', stateCode(form1003.address_state))}
+                    </ADDRESS>
+                    <RESIDENCE_DETAIL>
+                      <BorrowerResidencyBasisType>${esc(form1003.own_rent === 'Rent' ? 'Rent' : 'Own')}</BorrowerResidencyBasisType>
+                      <BorrowerResidencyType>Current</BorrowerResidencyType>
+                    </RESIDENCE_DETAIL>
+                  </RESIDENCE>
+                </RESIDENCES>` : '';
+
   const borrowerParties = [];
 
   if (hasPrimaryBorrower) {
     borrowerParties.push(`
         <PARTY SequenceNumber="1">
-          <INDIVIDUAL>
+          <INDIVIDUAL>${contactPointsXml}
             <NAME>
               ${tag('FirstName', form1003.first_nm)}
               ${tag('MiddleName', form1003.middle_nm)}
@@ -424,11 +716,11 @@ function buildMismoXml({ loan, form1003, fees }) {
           <ADDRESSES>
             <ADDRESS>
               ${tag('AddressLineText', [form1003.address_num, form1003.address_street].filter(Boolean).join(' '))}
-              ${tag('CityName', form1003.address_city)}
-              ${tag('StateCode', stateCode(form1003.address_state))}
-              ${tag('PostalCode', form1003.address_zip)}
-              <CountryCode>US</CountryCode>
               <AddressType>Current</AddressType>
+              ${tag('CityName', form1003.address_city)}
+              <CountryCode>US</CountryCode>
+              ${tag('PostalCode', form1003.address_zip)}
+              ${tag('StateCode', stateCode(form1003.address_state))}
             </ADDRESS>
           </ADDRESSES>
           <ROLES>
@@ -438,11 +730,11 @@ function buildMismoXml({ loan, form1003, fees }) {
                   ${tag('BorrowerBirthDate', dateOnly(form1003.dob))}
                   <BorrowerClassificationType>Primary</BorrowerClassificationType>
                   ${tag('MaritalStatusType', form1003.marital_status)}
-                </BORROWER_DETAIL>
+                </BORROWER_DETAIL>${counselingXml}
                 <CURRENT_INCOME>
                   <CURRENT_INCOME_ITEMS>${incomeItemsXml}
                   </CURRENT_INCOME_ITEMS>
-                </CURRENT_INCOME>${employerXml}
+                </CURRENT_INCOME>${declarationXml}${employerXml}${govtMonitoringXml}${militaryServicesXml}${residencesXml}
               </BORROWER>
               <ROLE_DETAIL>
                 <PartyRoleType>Borrower</PartyRoleType>
@@ -535,8 +827,42 @@ function buildMismoXml({ loan, form1003, fees }) {
         </ASSET>`;
   }).join('');
 
-  const assetsXml = assetXml ? `
-      <ASSETS>${assetXml}
+  // ---- REAL ESTATE OWNED ----
+  // OWNED_PROPERTY nests inside ASSETS/ASSET — verified against real Arive
+  // exports. Emitted as its own ASSET entry so it round-trips back through
+  // the import path, which reads the same location.
+  const reos = safeParseJsonArray(form1003.reos_json);
+  const OCCUPANCY_TO_MISMO_REO = { 'Primary Residence':'PrimaryResidence', 'Second Home':'SecondHome', 'Investment':'Investment' };
+  const reoXml = reos.map(r => {
+    assetCounter++;
+    const zipDigits = r.zip ? String(r.zip).replace(/\D/g, '') : null;
+    return `
+        <ASSET SequenceNumber="${assetCounter}" xlink:label="ASSET_${assetCounter}">
+          <OWNED_PROPERTY>
+            <OWNED_PROPERTY_DETAIL>
+              ${tag('OwnedPropertyDispositionStatusType', r.status)}
+              ${tag('OwnedPropertyLienUPBAmount', money(r.lienAmount))}
+              ${tag('OwnedPropertySubjectIndicator', r.isSubject ? 'true' : 'false')}
+            </OWNED_PROPERTY_DETAIL>
+            <PROPERTY>
+              <ADDRESS>
+                ${tag('AddressLineText', r.addr1)}
+                ${tag('CityName', r.city)}
+                <CountryCode>US</CountryCode>
+                ${tag('PostalCode', zipDigits)}
+                ${tag('StateCode', stateCode(r.state))}
+              </ADDRESS>
+              <PROPERTY_DETAIL>
+                ${tag('PropertyEstimatedValueAmount', money(r.marketValue))}
+                ${r.occupancy ? tag('PropertyUsageType', OCCUPANCY_TO_MISMO_REO[r.occupancy] || r.occupancy) : ''}
+              </PROPERTY_DETAIL>
+            </PROPERTY>
+          </OWNED_PROPERTY>
+        </ASSET>`;
+  }).join('');
+
+  const assetsXml = (assetXml || reoXml) ? `
+      <ASSETS>${assetXml}${reoXml}
       </ASSETS>` : '';
 
   // ---- RELATIONSHIPS (discrepancy #6) ----
@@ -558,7 +884,7 @@ function buildMismoXml({ loan, form1003, fees }) {
   <DEAL_SETS>
     <DEAL_SET>
       <DEALS>
-        <DEAL>${collateralXml}${assetsXml}${liabilitiesXml}${loanXml}${partiesXml}${relationshipsXml}
+        <DEAL>${assetsXml}${collateralXml}${liabilitiesXml}${loanXml}${partiesXml}${relationshipsXml}
         </DEAL>
       </DEALS>
     </DEAL_SET>
@@ -843,6 +1169,11 @@ function parseMismoXml(xmlString) {
     // Was entirely unmapped — every import defaulted to U.S. Citizen
     // regardless of the file's actual value. Jammie's radio buttons use
     // short codes, not MISMO's CamelCase enum.
+    // How the borrower occupies their CURRENT address (Own/Rent) —
+    // distinct from the subject property's occupancy.
+    const residencyBasis = dig(primary, 'ROLES.ROLE.BORROWER.RESIDENCES.RESIDENCE.RESIDENCE_DETAIL.BorrowerResidencyBasisType');
+    if (residencyBasis) form1003.own_rent = residencyBasis === 'Rent' ? 'Rent' : residencyBasis === 'LiveRentFree' ? 'Live Rent Free' : 'Own';
+
     const citizenshipType = dig(primary, 'ROLES.ROLE.BORROWER.DECLARATION.DECLARATION_DETAIL.CitizenshipResidencyType');
     const CITIZENSHIP_MAP = {
       USCitizen: 'us_citizen',

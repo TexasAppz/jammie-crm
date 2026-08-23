@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db.cjs');
 const { buildMismoXml, parseMismoXml } = require('../lib/mismo.cjs');
+const { validateMismoOrdering } = require('../lib/mismo-validate.cjs');
 
 // GET /api/mismo/export/:loan_id -> streams a MISMO 3.4 XML file
 router.get('/export/:loan_id', async (req, res) => {
@@ -14,6 +15,23 @@ router.get('/export/:loan_id', async (req, res) => {
     const [feeRows] = await db.query('SELECT * FROM loan_fees WHERE loan_id=? ORDER BY section ASC, sort_order ASC', [loanId]);
 
     const xml = buildMismoXml({ loan: loanRows[0], form1003: form1003Rows[0], fees: feeRows });
+
+    // Structural self-check. MISMO containers are xs:sequence, so a file can
+    // be well-formed and complete yet still have whole sections silently
+    // dropped by a strict receiver (this is exactly how Declarations and
+    // Demographics went missing in Arive). Advisory only — never blocks the
+    // download, but surfaces the problem instead of letting it pass silently.
+    try {
+      const issues = validateMismoOrdering(xml);
+      if (issues.length) {
+        console.warn(`[mismo] Export for loan ${loanId} has ${issues.length} ordering issue(s):`);
+        issues.forEach(i => console.warn(`  - ${i.message}`));
+        res.setHeader('X-Mismo-Validation-Warnings', String(issues.length));
+      }
+    } catch (validationErr) {
+      // A validator fault must never break a user's export.
+      console.warn('[mismo] Ordering validation skipped:', validationErr.message);
+    }
 
     const fileName = `MISMO_${loanRows[0].loan_number || loanId}.xml`;
     res.setHeader('Content-Type', 'application/xml');
