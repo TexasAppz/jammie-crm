@@ -1275,13 +1275,13 @@ function Section1PersonalInfo({ borrowers, setBorrowers, activeBIdx, setActiveBI
     {!b.mailingSame && <AddrBlock data={mailingObj} onChange={updMailing}/>}
 
     <div className="form-section-title" style={{marginTop:20}}>Alternate Names</div>
-    {b.altNames.map((n,i)=>(
+    {(Array.isArray(b.altNames)?b.altNames:[]).map((n,i)=>(
       <div key={i} style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
         <FInput value={n} onChange={e=>upd('altNames',b.altNames.map((x,j)=>j===i?e.target.value:x))} placeholder={`Alternate name ${i+1}`} style={{flex:1}}/>
         <button className="btn btn-danger btn-sm" onClick={()=>upd('altNames',b.altNames.filter((_,j)=>j!==i))}>✕</button>
       </div>
     ))}
-    <button className="btn-add-dashed" onClick={()=>upd('altNames',[...b.altNames,''])}>+ Add Alternate Name</button>
+    <button className="btn-add-dashed" onClick={()=>upd('altNames',[...(Array.isArray(b.altNames)?b.altNames:[]),''])}>+ Add Alternate Name</button>
   </>;
 }
 
@@ -1868,7 +1868,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             prevAddresses: (()=>{ try { const a=JSON.parse(existing.prev_addresses_json||'[]'); return Array.isArray(a)?a:[]; } catch { return []; } })(),
             estCreditScore: existing.est_credit_score || '',
             suffix:        existing.suffix          || '',
-            altNames:      existing.alt_names       || '',
+            altNames:      (() => { try { const a=JSON.parse(existing.alt_names||'[]'); return Array.isArray(a)?a:[]; } catch { return existing.alt_names?[existing.alt_names]:[]; } })(),
             depAges:       existing.dependents_ages || '',
             joined:        existing.joined_to_borrower || '',
             taxSameAs:     existing.tax_same_as     || '',
@@ -2139,7 +2139,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         cell_phone:       borrowers[0]?.cellPhone || null,
         est_credit_score: borrowers[0]?.estCreditScore || null,
         suffix:              b.suffix       || null,
-        alt_names:           b.altNames     || null,
+        alt_names:           (Array.isArray(b.altNames)&&b.altNames.length)?JSON.stringify(b.altNames):null,
         num_dependents:      b.numDeps === '' ? null : parseInt(b.numDeps),
         dependents_ages:     b.depAges      || null,
         joined_to_borrower:  b.joined       || null,
@@ -2314,7 +2314,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           cell_phone:      borrowers[0]?.cellPhone || null,
           est_credit_score: borrowers[0]?.estCreditScore || null,
         suffix:              b.suffix       || null,
-        alt_names:           b.altNames     || null,
+        alt_names:           (Array.isArray(b.altNames)&&b.altNames.length)?JSON.stringify(b.altNames):null,
         num_dependents:      b.numDeps === '' ? null : parseInt(b.numDeps),
         dependents_ages:     b.depAges      || null,
         joined_to_borrower:  b.joined       || null,
