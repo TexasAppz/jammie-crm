@@ -34,6 +34,10 @@ router.get('/export/:loan_id', async (req, res) => {
     }
 
     const fileName = `MISMO_${loanRows[0].loan_number || loanId}.xml`;
+    // Custom + Content-Disposition headers are not readable by fetch()
+    // unless explicitly exposed; the frontend reads both for the filename
+    // and the structural-warning count.
+    res.setHeader('Access-Control-Expose-Headers', 'X-Mismo-Validation-Warnings, Content-Disposition');
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.send(xml);

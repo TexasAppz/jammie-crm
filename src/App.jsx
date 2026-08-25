@@ -2034,7 +2034,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   const handleSave = async () => {
     try {
       const b = borrowers[0];
-      const fullName = [b.firstName, b.lastName].filter(Boolean).join(' ') || 'New Borrower';
+      const fullName = [b.firstName, b.middleName, b.lastName].filter(Boolean).join(' ') || 'New Borrower';
 
       // ── 1. Update loans table ─────────────────────────────────────
       if (loan.id) {
@@ -2232,11 +2232,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     setSaving(true);
     try {
       const b = borrowers[0];
-      const fullName = [b.firstName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower';
+      const fullName = [b.firstName, b.middleName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower';
       if (loan.id) {
         // Update loans table
         await db.loans.update(loan.id, {
-          borrower:         [b.firstName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower',
+          borrower:         [b.firstName, b.middleName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower',
           loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
           rate:             parseFloat(formData.rate)         || loan.rate        || null,
           ltv:              ltvBasis > 0
@@ -2477,8 +2477,38 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     }
   };
 
-  const handleExportMismo = () => {
-    window.open(db.mismo.exportUrl(loan.id), '_blank');
+  const handleExportMismo = async () => {
+    // window.open() opened a blank tab and, when the server returned an
+    // error, rendered the raw response as text instead of downloading.
+    // Fetching as a blob keeps it in-page and lets us surface real errors.
+    try {
+      const res = await fetch(db.mismo.exportUrl(loan.id));
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { const j = await res.json(); msg = j.error || msg; } catch {}
+        showToast(`⚠ Export failed: ${msg}`);
+        return;
+      }
+      const warnings = res.headers.get('X-Mismo-Validation-Warnings');
+      const blob = await res.blob();
+      // Prefer the server's filename from Content-Disposition when present.
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^"]+)"?/);
+      const fileName = m ? m[1] : `MISMO_${loan.loan_number || loan.id}.xml`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(warnings && warnings !== '0'
+        ? `✓ Exported ${fileName} (${warnings} structure warning(s) — see server log)`
+        : `✓ Exported ${fileName}`);
+    } catch (err) {
+      showToast(`⚠ Export failed: ${err.message}`);
+    }
   };
 
   const handleMismoFileSelected = (file) => {
