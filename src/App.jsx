@@ -283,6 +283,9 @@ const GlobalStyles = () => (
     .f1003-topbar { background: #1e3a5f; color: #fff; padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 46px; z-index: 40; }
     .f1003-loan-name { font-size: 15px; font-weight: 700; color: #fff; }
     .f1003-loan-meta { font-size: 11px; color: #93c5fd; margin-top: 1px; }
+    .f1003-status-select { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; padding: 2px 22px 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23ffffff'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+    .f1003-status-select option { color: #111827; background: #fff; }
+    @media (pointer: coarse) { .f1003-status-select { min-height: 32px; font-size: 12px; } }
     .f1003-progress { background: #fff; border-bottom: 1px solid var(--border); padding: 0 24px; overflow-x: auto; }
     .f1003-steps { display: flex; gap: 0; }
     .f1003-step { display: flex; align-items: center; gap: 6px; padding: 10px 14px; font-size: 11.5px; font-weight: 500; color: var(--text-3); white-space: nowrap; border-bottom: 2px solid transparent; cursor: pointer; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; }
@@ -437,7 +440,76 @@ const GlobalStyles = () => (
       .b-page-title { font-size: 18px; }
 
       /* 3-tab form */
-      .f1003-topbar .f1003-loan-meta { display: none; }
+      /* Keep the meta line on phones — it now holds the status control.
+         Hide only the loan-number/address text to save space. */
+      .f1003-topbar .f1003-loan-meta > span { display: none; }
+    }
+
+
+    /* ─────────────────────────────────────────────────────────────
+       MOBILE — targets the inline-styled layouts added after the
+       original responsive CSS was written. Inline styles beat
+       stylesheet rules, so !important is required here by design.
+       ───────────────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      /* Any inline grid whose direct children are form fields stacks
+         to one column. :has() keeps table-like grids (payment panel,
+         liability rows) untouched. */
+      div[style*="grid-template-columns"]:has(> .form-group),
+      div[style*="grid-template-columns"]:has(> .f-field) {
+        grid-template-columns: 1fr !important;
+        gap: 14px !important;
+      }
+      /* Inline maxWidth caps that were sized for desktop columns */
+      div[style*="max-width:260px"], div[style*="max-width:340px"],
+      div[style*="max-width:700px"], div[style*="max-width:900px"],
+      div[style*="max-width:1100px"] { max-width: 100% !important; }
+
+      /* 1003 header: stack the stats under the name instead of beside it */
+      .f1003-topbar { height: auto !important; min-height: 48px; flex-wrap: wrap; padding: 8px 12px !important; gap: 6px; }
+      .f1003-stats { flex-basis: 100%; justify-content: flex-start !important; gap: 14px !important; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+      .f1003-stats > div { flex-shrink: 0; }
+      .f1003-topbar .btn { padding: 6px 10px !important; font-size: 12px !important; }
+
+      /* Main tabs: horizontal scroll instead of squeezing six tabs */
+      .f1003-maintabs { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 8px !important; scrollbar-width: none; top: 44px !important; }
+      .f1003-maintabs::-webkit-scrollbar { display: none; }
+      .f1003-maintab { padding: 12px 14px !important; font-size: 13px !important; flex-shrink: 0; }
+
+      /* Borrower sub-tabs and section tabs */
+      .b-tab-1003 { padding: 8px 12px; font-size: 12px; }
+
+      /* Cards and panels lose their side margins */
+      .card { border-radius: 8px; }
+      .card-header { padding: 12px 14px; font-size: 13px; }
+      .card-body { padding: 12px 14px; }
+
+      /* Market rates card: let the two rates stack */
+      .card-body div[style*="gap:32px"] { gap: 16px !important; }
+    }
+
+    @media (max-width: 480px) {
+      /* Loans/leads tables: scroll, but keep the first column visible */
+      .table-wrap table { min-width: 720px; }
+      .table-wrap th:first-child, .table-wrap td:first-child {
+        position: sticky; left: 0; background: #fff; z-index: 1;
+        box-shadow: 2px 0 0 var(--border-light);
+      }
+      .table-wrap thead th:first-child { background: var(--cream); }
+
+      /* Sticky offsets: nav is 44px on phones */
+      .f1003-topbar { top: 44px !important; }
+
+      /* Save/Back buttons in the 1003 footer stack on very narrow screens */
+      .f1003-footer { flex-wrap: wrap; gap: 8px; }
+      .f1003-footer .btn { flex: 1 1 auto; justify-content: center; }
+    }
+
+    /* iOS: prevent the 100vh-under-the-address-bar problem and rubber-band
+       overscroll on fixed panels */
+    @supports (-webkit-touch-callout: none) {
+      .modal { max-height: 100dvh; }
+      .ai-sidebar { height: 100dvh; }
     }
 
     /* Touch-friendly tap targets */
@@ -2764,7 +2836,25 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             {formData.mortgagePurpose==='Refinance' ? 'Refinance' : 'Purchase'}
           </div>
           <div className="f1003-loan-name">📋 {borrowers[0]?.firstName && borrowers[0]?.lastName ? `${borrowers[0].firstName} ${borrowers[0].lastName}` : loan.borrower || 'New Application'}</div>
-          <div className="f1003-loan-meta">Loan #{loan.loan_number} · {loan.subject_property} · {loan.loan_status}</div>
+          <div className="f1003-loan-meta" style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+            <span>Loan #{loan.loan_number} · {loan.subject_property} ·</span>
+            {/* Status is editable right here — the only other status control
+                lives in the legacy LoanForm modal, which this view never opens.
+                Saves immediately so it works as a one-tap edit on a phone. */}
+            <select className="f1003-status-select" value={loan.loan_status || 'App Intake'}
+              onChange={async e => {
+                const loan_status = e.target.value;
+                try {
+                  const updated = await db.loans.update(loan.id, { loan_status });
+                  onLoanUpdated?.(updated && updated.id ? updated : { ...loan, loan_status });
+                  showToast(`Status → ${loan_status}`);
+                } catch (err) {
+                  showToast(`⚠ Could not update status: ${err.message}`);
+                }
+              }}>
+              {LOAN_STATUSES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
         </div>
 
         {/* ── ARIVE-style stats strip ── */}
@@ -2773,7 +2863,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           const ltv = formData.appraisedVal && formData.baseLoan
             ? ((parseFloat(formData.baseLoan)/parseFloat(formData.appraisedVal))*100).toFixed(2)+'%' : '--';
           return (
-            <div style={{display:'flex',alignItems:'center',gap:22,flex:1,justifyContent:'center'}}>
+            <div className="f1003-stats" style={{display:'flex',alignItems:'center',gap:22,flex:1,justifyContent:'center'}}>
               <div style={{textAlign:'left'}}>
                 <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>Loan Amount · LTV</div>
                 <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>
@@ -2863,9 +2953,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       </div>
 
       {/* ── 3 Main Tabs ── */}
-      <div style={{background:'#fff',borderBottom:'1px solid var(--border)',padding:'0 24px',display:'flex',alignItems:'center',gap:0,position:'sticky',top:52,zIndex:39}}>
+      <div className="f1003-maintabs" style={{background:'#fff',borderBottom:'1px solid var(--border)',padding:'0 24px',display:'flex',alignItems:'center',gap:0,position:'sticky',top:52,zIndex:39}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>switchTab(t.id)}
+          <button key={t.id} className="f1003-maintab" onClick={()=>switchTab(t.id)}
             style={{padding:'14px 22px',fontSize:15,fontWeight:600,color:activeTab===t.id?'var(--accent)':'var(--text-3)',
               borderBottom:`2px solid ${activeTab===t.id?'var(--accent)':'transparent'}`,
               background:'none',border:'none',borderTop:'none',borderLeft:'none',borderRight:'none',
