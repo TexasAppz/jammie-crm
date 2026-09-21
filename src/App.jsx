@@ -883,6 +883,56 @@ Be concise, professional, and practical. Format emails with proper structure whe
 }
 
 // ─────────────────────────────────────────────────────────────────
+// PWA — service worker registration + iOS install hint
+// ─────────────────────────────────────────────────────────────────
+// Service workers only register in a secure context (HTTPS). Over plain
+// http:// this is a silent no-op; the manifest + Apple meta tags in
+// index.html still give "Add to Home Screen" its full-screen launch.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err =>
+      console.warn('[pwa] service worker not registered:', err.message));
+  });
+}
+registerServiceWorker();
+
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+const isStandalone = () => window.navigator.standalone === true
+  || window.matchMedia('(display-mode: standalone)').matches;
+
+// iOS Safari never shows an install prompt, so users don't know the app
+// can live on their home screen. Show a one-time, dismissible hint.
+function IOSInstallHint() {
+  const KEY = 'jammie.installHint.dismissed';
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (!isIOS() || isStandalone()) return;
+    try { if (localStorage.getItem(KEY)) return; } catch {}
+    const t = setTimeout(() => setShow(true), 4000); // let them look first
+    return () => clearTimeout(t);
+  }, []);
+  if (!show) return null;
+  const dismiss = () => { setShow(false); try { localStorage.setItem(KEY, '1'); } catch {} };
+  return (
+    <div role="dialog" aria-label="Install Jammie" style={{
+      position:'fixed', left:12, right:12, bottom:'calc(16px + env(safe-area-inset-bottom, 0px))', zIndex:1000,
+      background:'#0f1623', color:'#fff', borderRadius:14, padding:'14px 16px',
+      boxShadow:'0 8px 30px rgba(0,0,0,.35)', display:'flex', gap:12, alignItems:'center' }}>
+      <img src="/icons/icon-192.png" alt="" width={44} height={44} style={{borderRadius:10, flexShrink:0}} />
+      <div style={{flex:1, fontSize:13, lineHeight:1.45}}>
+        <div style={{fontWeight:700, marginBottom:2}}>Add Jammie to your Home Screen</div>
+        <div style={{color:'#cbd5e1'}}>
+          Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>Share ⬆</span> then <strong>Add to Home Screen</strong> for full-screen access.
+        </div>
+      </div>
+      <button onClick={dismiss} aria-label="Dismiss" style={{background:'none',border:'none',color:'#94a3b8',fontSize:20,cursor:'pointer',padding:4,lineHeight:1}}>×</button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // MARKET RATES — live Freddie Mac PMMS averages via FRED
 // ─────────────────────────────────────────────────────────────────
 // These are NATIONAL SURVEY AVERAGES, not Jammie's lender pricing.
@@ -5375,6 +5425,7 @@ export default function App() {
 
       <AISidebar open={aiOpen} onClose={()=>setAiOpen(false)} context={pageContext} />
       {toast && <Toast msg={toast} onDone={()=>setToast(null)} />}
+      <IOSInstallHint />
     </div>
   );
 }
