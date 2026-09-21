@@ -924,7 +924,9 @@ function IOSInstallHint() {
       <div style={{flex:1, fontSize:13, lineHeight:1.45}}>
         <div style={{fontWeight:700, marginBottom:2}}>Add Jammie to your Home Screen</div>
         <div style={{color:'#cbd5e1'}}>
-          Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>Share ⬆</span> then <strong>Add to Home Screen</strong> for full-screen access.
+          {/CriOS/.test(navigator.userAgent)
+            ? <>Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>⋯</span> then <strong>Add to Home Screen</strong> for full-screen access.</>
+            : <>Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>Share ⬆</span> then <strong>Add to Home Screen</strong> for full-screen access.</>}
         </div>
       </div>
       <button onClick={dismiss} aria-label="Dismiss" style={{background:'none',border:'none',color:'#94a3b8',fontSize:20,cursor:'pointer',padding:4,lineHeight:1}}>×</button>
@@ -5361,7 +5363,7 @@ export default function App() {
 
   // ── BORROWER PORTAL MODE ──────────────────────────
   if (portalMode === 'borrower') {
-    if (!borrowerUser) return <><GlobalStyles/><BorrowerLogin onAuthenticated={setBorrowerUser} onMLOPortal={()=>setPortalMode('mlo')}/></>;
+    if (!borrowerUser) return <><GlobalStyles/><BorrowerLogin onAuthenticated={setBorrowerUser} onMLOPortal={()=>setPortalMode('mlo')}/><IOSInstallHint/></>;
     return (
       <>
         <GlobalStyles/>
@@ -5372,7 +5374,7 @@ export default function App() {
   }
 
   // ── MLO PORTAL MODE ───────────────────────────────
-  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser} onBorrowerPortal={()=>setPortalMode('borrower')}/></>;
+  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser} onBorrowerPortal={()=>setPortalMode('borrower')}/><IOSInstallHint/></>;
 
   const navItems = [
     {id:'dashboard',label:'Dashboard'},
