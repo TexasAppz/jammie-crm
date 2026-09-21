@@ -654,6 +654,12 @@ const db = {
     exportUrl: (loanId) => `${API_URL}/api/mismo/export/${loanId}`,
     import: (loanId, xmlText) => apiFetch(`/api/mismo/import/${loanId}`, { method: 'POST', body: { xml: xmlText } }),
   },
+  rates: {
+    // Live PMMS averages via the server-side FRED proxy. No mock fallback:
+    // showing invented rates to a loan officer would be worse than showing
+    // nothing, so failures surface as an explicit unavailable state.
+    get: () => apiFetch('/api/rates'),
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -805,6 +811,112 @@ Be concise, professional, and practical. Format emails with proper structure whe
 }
 
 // ─────────────────────────────────────────────────────────────────
+// MARKET RATES — live Freddie Mac PMMS averages via FRED
+// ─────────────────────────────────────────────────────────────────
+// These are NATIONAL SURVEY AVERAGES, not Jammie's lender pricing.
+// The distinction matters: an MLO must not quote these to a borrower
+// as an available rate. The card is labeled accordingly.
+function MarketRatesCard() {
+  const [data, setData]       = useState(null);
+  const [error, setError]     = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    db.rates.get()
+      .then(d => { if (!cancelled) { setData(d); setError(null); } })
+      .catch(e => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Rates falling is good news for originations, so down is green.
+  const Delta = ({ change }) => {
+    if (change === null || change === undefined) {
+      return <span style={{fontSize:11,color:'var(--text-3)'}}>no prior week</span>;
+    }
+    if (change === 0) {
+      return <span style={{fontSize:11,color:'var(--text-3)'}}>unchanged</span>;
+    }
+    const down = change < 0;
+    return (
+      <span style={{fontSize:11,fontWeight:600,color:down?'#15803d':'#b91c1c'}}>
+        {down ? '▼' : '▲'} {Math.abs(change).toFixed(2)} pts
+      </span>
+    );
+  };
+
+  const Rate = ({ item }) => (
+    <div style={{flex:1,minWidth:150,padding:'4px 0'}}>
+      <div style={{fontSize:12,color:'var(--text-3)',marginBottom:4}}>{item.label}</div>
+      <div style={{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
+        <span style={{fontSize:28,fontWeight:700,color:'var(--accent)',fontVariantNumeric:'tabular-nums',lineHeight:1}}>
+          {item.rate.toFixed(3)}%
+        </span>
+        <Delta change={item.change} />
+      </div>
+    </div>
+  );
+
+  const fmtDate = iso => {
+    if (!iso) return '';
+    // Parse as local, not UTC — `new Date('2026-09-17')` is midnight UTC
+    // and renders as the previous day in US timezones.
+    const [y,m,d] = iso.split('-').map(Number);
+    return new Date(y, m-1, d).toLocaleDateString('en-US',
+      { month:'short', day:'numeric', year:'numeric' });
+  };
+
+  return (
+    <div className="card" style={{marginBottom:24}}>
+      <div className="card-header">
+        <span>Market Rates <span style={{fontWeight:400,color:'var(--text-3)',fontSize:12}}>· national average</span></span>
+        {data && !loading && (
+          <span style={{fontSize:11,color:'var(--text-3)'}}>
+            Week ending {fmtDate(data.fixed30.date)}
+            {data.stale && (
+              <span title="Live refresh failed; showing the last value retrieved."
+                style={{marginLeft:8,background:'#fef3c7',color:'#b45309',padding:'1px 6px',borderRadius:8,fontSize:10,fontWeight:600}}>
+                STALE
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+      <div className="card-body">
+        {loading && (
+          <div style={{display:'flex',gap:6,alignItems:'center',color:'var(--text-3)',fontSize:13,padding:'12px 0'}}>
+            <div className="ai-dot" /><div className="ai-dot" /><div className="ai-dot" />
+            <span style={{marginLeft:6}}>Loading current rates…</span>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div style={{fontSize:13,color:'var(--text-3)',padding:'10px 0'}}>
+            <div style={{color:'#b91c1c',fontWeight:500,marginBottom:4}}>Rates unavailable</div>
+            <div style={{fontSize:12}}>{error}</div>
+          </div>
+        )}
+
+        {!loading && data && (
+          <>
+            <div style={{display:'flex',gap:32,flexWrap:'wrap'}}>
+              <Rate item={data.fixed30} />
+              <Rate item={data.fixed15} />
+            </div>
+            {/* FRED marks these series "Copyrighted: Citation Required" */}
+            <div style={{marginTop:14,paddingTop:10,borderTop:'1px solid var(--border-light)',
+              fontSize:10.5,color:'var(--text-3)',lineHeight:1.5}}>
+              Source: {data.attribution}. Survey averages for conforming loans — not a quotable rate.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // DASHBOARD PAGE
 // ─────────────────────────────────────────────────────────────────
 function DashboardPage({ loans, leads, tasks }) {
@@ -923,6 +1035,8 @@ function DashboardPage({ loans, leads, tasks }) {
           </div>
         </div>
       </div>
+
+      <MarketRatesCard />
 
       <div className="dash-row">
         <div className="card">
