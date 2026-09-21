@@ -16,5 +16,6 @@ app.use('/api/fees', require('./routes/fees.cjs'));
 app.use('/api/form1003', require('./routes/form1003.cjs'));
 app.use('/api/documents', require('./routes/documents.cjs'));
 app.use('/api/mismo', require('./routes/mismo.cjs'));
+app.use('/api/rates', require('./routes/rates.cjs'));
 
 app.listen(PORT, () => console.log(`✅ Jammie API running on port ${PORT}`));
