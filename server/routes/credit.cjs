@@ -292,11 +292,16 @@ router.post('/:id/retrieve', async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Report not found' });
     const r = rows[0];
     if (!r.ems_report_id) return res.status(400).json({ error: 'No EMS order number on this report' });
-    const [loans] = await db.query('SELECT loan_number FROM loans WHERE id=?', [r.loan_id]);
+    // Retrieve is structurally identical to Submit, so it needs the same
+    // borrower block the original order was built from.
+    const { loan, form, error, status } = await loadLoanAndBorrower(r.loan_id);
+    if (error) return res.status(status).json({ error });
+    const borrowers = [toEmsBorrower(form)];
+    if (r.request_type === 'Joint' && form.first_nm_borrower_2) borrowers.push(toEmsBorrower(form, true));
 
     const result = await ems.retrieveCredit({
-      reportId: r.ems_report_id, loanNumber: loans[0]?.loan_number,
-      requestedBy: req.body?.requestedBy, joint: r.request_type === 'Joint', mode: r.pull_mode,
+      reportId: r.ems_report_id, loanNumber: loan.loan_number,
+      requestedBy: req.body?.requestedBy, borrowers, mode: r.pull_mode,
     });
     if (result.ok) {
       await db.query('UPDATE credit_reports SET ? WHERE id=?', [{

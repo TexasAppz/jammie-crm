@@ -129,7 +129,11 @@ function validateBorrower(b, label) {
  * @param {string} [opts.mode]            'hard' | 'soft' — selects credential set only
  */
 function buildSubmitRequest(opts) {
-  const { loanNumber, requestedBy, borrowers = [], bureaus = {}, mode = 'hard' } = opts;
+  return buildDocument({ ...opts, action: 'Submit' });
+}
+
+function buildDocument(opts) {
+  const { loanNumber, requestedBy, borrowers = [], bureaus = {}, mode = 'hard', action, reportId } = opts;
 
   if (!loanNumber) throw new Error('loanNumber (LenderCaseIdentifier) is required');
   if (!borrowers.length || borrowers.length > 2) throw new Error('Provide 1 borrower (Individual) or 2 (Joint)');
@@ -165,7 +169,7 @@ function buildSubmitRequest(opts) {
   <REQUEST${attr('RequestDatetime', nowStamp())}${attr('InternalAccountIdentifier', creds.account)}${attr('LoginAccountIdentifier', creds.account)}${attr('LoginAccountPassword', creds.password)}>
     <REQUEST_DATA>
       <CREDIT_REQUEST MISMOVersionID="2.3.1"${attr('LenderCaseIdentifier', loanNumber)}${attr('RequestingPartyRequestedByName', requestedBy || creds.submitter)}>
-        <CREDIT_REQUEST_DATA CreditRequestID="CRQ1"${attr('BorrowerID', borrowers.map((_, i) => `B${i + 1}`).join(' '))} CreditReportType="Merge"${attr('CreditRequestType', joint ? 'Joint' : 'Individual')}${attr('CreditRequestDateTime', nowStamp())} CreditReportRequestActionType="Submit">
+        <CREDIT_REQUEST_DATA CreditRequestID="CRQ1"${attr('BorrowerID', borrowers.map((_, i) => `B${i + 1}`).join(' '))}${attr('CreditReportIdentifier', reportId)} CreditReportType="Merge"${attr('CreditRequestType', joint ? 'Joint' : 'Individual')}${attr('CreditRequestDateTime', nowStamp())}${attr('CreditReportRequestActionType', action)}>
           <CREDIT_REPOSITORY_INCLUDED _EquifaxIndicator="${bureauFlag(bureaus.equifax)}" _ExperianIndicator="${bureauFlag(bureaus.experian)}" _TransUnionIndicator="${bureauFlag(bureaus.transunion)}" />
         </CREDIT_REQUEST_DATA>
         <LOAN_APPLICATION>${borrowerXml}
@@ -181,29 +185,19 @@ function buildSubmitRequest(opts) {
 /**
  * Retrieve (reprint) a previously ordered report by its EMS order number.
  * Free — does not re-pull the bureaus.
+ *
+ * Built from the SAME document as Submit, with only two differences:
+ *   CreditReportRequestActionType="Retrieve" and CreditReportIdentifier set.
+ * The DTD validates structure, not action type — so if Submit validates,
+ * this does too. An earlier version omitted LOAN_APPLICATION and was
+ * rejected with "Does Not Validate Against DTD or Schema".
  */
-function buildRetrieveRequest({ reportId, loanNumber, requestedBy, joint = false, mode = 'hard' }) {
+function buildRetrieveRequest(opts) {
+  const { reportId, loanNumber, requestedBy, borrowers = [], bureaus = {}, mode = 'hard' } = opts;
   if (!reportId) throw new Error('reportId (CreditReportIdentifier) is required');
-  const creds = getCredentials(mode);
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE REQUEST_GROUP SYSTEM "CreditRequest_v2_3.dtd">
-<REQUEST_GROUP MISMOVersionID="2.3.1">
-  <REQUESTING_PARTY${attr('_Name', creds.submitter)}>
-    <PREFERRED_RESPONSE _Format="XML" _VersionIdentifier="2.3.1" />
-  </REQUESTING_PARTY>
-  <SUBMITTING_PARTY${attr('_Name', creds.submitter)} />
-  <REQUEST${attr('RequestDatetime', nowStamp())}${attr('InternalAccountIdentifier', creds.account)}${attr('LoginAccountIdentifier', creds.account)}${attr('LoginAccountPassword', creds.password)}>
-    <REQUEST_DATA>
-      <CREDIT_REQUEST MISMOVersionID="2.3.1"${attr('LenderCaseIdentifier', loanNumber)}${attr('RequestingPartyRequestedByName', requestedBy || creds.submitter)}>
-        <CREDIT_REQUEST_DATA${attr('CreditReportIdentifier', reportId)} CreditReportRequestActionType="Retrieve" CreditReportType="Merge"${attr('CreditRequestType', joint ? 'Joint' : 'Individual')}>
-          <CREDIT_REPOSITORY_INCLUDED _EquifaxIndicator="Y" _ExperianIndicator="Y" _TransUnionIndicator="Y" />
-        </CREDIT_REQUEST_DATA>
-      </CREDIT_REQUEST>
-    </REQUEST_DATA>
-  </REQUEST>
-</REQUEST_GROUP>
-`;
-  return { xml, url: creds.url };
+  if (!borrowers.length) throw new Error('Retrieve requires the borrower(s) from the original order');
+  return buildDocument({ loanNumber, requestedBy, borrowers, bureaus, mode,
+    action: 'Retrieve', reportId });
 }
 
 // ── Transport ───────────────────────────────────────────────────────────
