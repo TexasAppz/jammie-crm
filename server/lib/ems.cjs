@@ -151,7 +151,7 @@ function buildSubmitRequest(opts) {
     const r = b.residence;
     return `
       <BORROWER${attr('BorrowerID', id)}${attr('_FirstName', b.firstName)}${attr('_MiddleName', b.middleName)}${attr('_LastName', b.lastName)}${attr('_NameSuffix', b.suffix)}${attr('_SSN', digitsOnly(b.ssn))}${attr('_BirthDate', toEmsDate(b.dob))}${attr('_PrintPositionType', i === 0 ? 'Borrower' : 'CoBorrower')}${attr('JointAssetLiabilityReportingType', joint ? 'Jointly' : 'NotJointly')}>
-        <_RESIDENCE BorrowerResidencyType="Current"${attr('_StreetAddress', r.street)}${attr('_City', r.city)}${attr('_State', String(r.state).toUpperCase())}${attr('_PostalCode', digitsOnly(r.zip).slice(0, 5))}${attr('BorrowerResidencyDurationYears', r.years)} />
+        <_RESIDENCE BorrowerResidencyType="Current"${attr('_StreetAddress', r.street)}${attr('_City', r.city)}${attr('_State', String(r.state).toUpperCase())}${attr('_PostalCode', digitsOnly(r.zip).slice(0, 5))}${attr('BorrowerResidencyDurationYears', r.years != null && r.years !== '' && Number.isFinite(Number(r.years)) ? Math.round(Number(r.years)) : null)} />
       </BORROWER>`;
   }).join('');
 
