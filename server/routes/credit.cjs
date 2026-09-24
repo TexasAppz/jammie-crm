@@ -258,6 +258,31 @@ router.get('/:id/pdf', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── POST /api/credit/:id/reparse ───────────────────────────────────────
+// Re-run the parser over the stored raw XML. Free (no EMS call). Useful
+// when a parser fix lands after a report was already retrieved.
+router.post('/:id/reparse', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT id, raw_response_xml FROM credit_reports WHERE id=?', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Report not found' });
+    if (!rows[0].raw_response_xml) return res.status(400).json({ error: 'No raw response stored for this report' });
+    const result = ems.parseResponse(rows[0].raw_response_xml);
+    await db.query('UPDATE credit_reports SET ? WHERE id=?', [{
+      ems_report_id: result.reportId,
+      status_code: result.status.code, status_condition: result.status.condition,
+      status_description: result.status.description,
+      scores_json: result.ok ? JSON.stringify(result.scores) : null,
+      liabilities_json: result.ok ? JSON.stringify(result.liabilities) : null,
+      inquiries_json: result.ok ? JSON.stringify(result.inquiries) : null,
+      public_records_json: result.ok ? JSON.stringify(result.publicRecords) : null,
+      report_pdf: result.pdfBase64 ? Buffer.from(result.pdfBase64, 'base64') : undefined,
+    }, rows[0].id]);
+    res.json({ ok: result.ok, reportId: result.reportId, status: result.status, errors: result.errors,
+      scores: result.scores || [], liabilities: result.liabilities || [],
+      inquiries: result.inquiries || [], publicRecords: result.publicRecords || [], hasPdf: !!result.pdfBase64 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── POST /api/credit/:id/retrieve ───────────────────────────────────────
 // Free reprint by EMS order number. Useful if the original response was
 // lost, or to refresh the stored PDF.

@@ -195,7 +195,9 @@ function buildRetrieveRequest({ reportId, loanNumber, requestedBy, joint = false
   <REQUEST${attr('RequestDatetime', nowStamp())}${attr('InternalAccountIdentifier', creds.account)}${attr('LoginAccountIdentifier', creds.account)}${attr('LoginAccountPassword', creds.password)}>
     <REQUEST_DATA>
       <CREDIT_REQUEST MISMOVersionID="2.3.1"${attr('LenderCaseIdentifier', loanNumber)}${attr('RequestingPartyRequestedByName', requestedBy || creds.submitter)}>
-        <CREDIT_REQUEST_DATA CreditRequestID="CRQ1"${attr('CreditReportIdentifier', reportId)} CreditReportType="Merge"${attr('CreditRequestType', joint ? 'Joint' : 'Individual')} CreditReportRequestActionType="Retrieve" />
+        <CREDIT_REQUEST_DATA${attr('CreditReportIdentifier', reportId)} CreditReportRequestActionType="Retrieve" CreditReportType="Merge"${attr('CreditRequestType', joint ? 'Joint' : 'Individual')}>
+          <CREDIT_REPOSITORY_INCLUDED _EquifaxIndicator="Y" _ExperianIndicator="Y" _TransUnionIndicator="Y" />
+        </CREDIT_REQUEST_DATA>
       </CREDIT_REQUEST>
     </REQUEST_DATA>
   </REQUEST>
@@ -262,12 +264,18 @@ function parseResponse(xmlText) {
     .map(t => (typeof t === 'string' ? t : t['#text'] || ''))
     .filter(Boolean);
 
+  // Per the guide, STATUS only appears on ERROR responses. A successful
+  // report has no STATUS element at all - success is "there is a report
+  // identifier, the type is not Error, and no error message was returned".
+  const isError = creditResponse.CreditReportType === 'Error'
+               || status._Condition === 'Error'
+               || errorTexts.length > 0;
   const result = {
-    ok: status._Condition === 'Success' && creditResponse.CreditReportType !== 'Error',
+    ok: !isError && !!creditResponse.CreditReportIdentifier,
     status: {
-      code: status._Code || null,
-      condition: status._Condition || null,
-      description: status._Description || null,
+      code: status._Code || (isError ? null : 'OK'),
+      condition: status._Condition || (isError ? 'Error' : 'Success'),
+      description: status._Description || (isError ? errorTexts[0] || null : 'Report received'),
     },
     errors: errorTexts,
     // The EMS order number — needed for Retrieve/Reissue/Upgrade later.
