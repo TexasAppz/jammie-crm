@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
+import { API_URL, checkApi, apiFetch } from "./shared/api.js";
+
+// The borrower portal (/apply/*) is its own chunk: MLOs never download it,
+// borrowers never download the CRM.
+const BorrowerApp = lazy(() => import("./borrower/BorrowerApp.jsx"));
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL STYLES
@@ -565,8 +571,7 @@ let _nextLoanId = 9, _nextLeadId = 6, _nextTaskId = 8;
 // API CLIENT — connects React to Express backend
 // Falls back to mock data if API is unreachable (dev mode)
 // ─────────────────────────────────────────────────────────────────
-// Relative URL — production: nginx proxies /api → Express :3001; local dev: vite proxy does the same
-const API_URL = '';
+// API_URL / checkApi / apiFetch live in src/shared/api.js (shared with the borrower portal).
 
 // Mock DB fallback (used when API is unreachable e.g. local dev without backend)
 // Mock fees store for local dev (auto-seeded per loan on first open)
@@ -619,47 +624,6 @@ const mockDb = {
     delete:    (id) => { _fees=_fees.filter(f=>f.id!==id); return Promise.resolve({success:true}); },
   },
 };
-
-let _apiAvailable = null; // null=unknown, true=available, false=unavailable
-let _apiCheckedAt = 0;
-
-async function checkApi() {
-  const now = Date.now();
-  // Trust a successful check indefinitely
-  if (_apiAvailable === true) return true;
-  // Only trust a FAILED check for 3 seconds — then retry.
-  // This prevents one transient failure (e.g. API restarting) from
-  // permanently locking the whole session into mock/offline mode.
-  if (_apiAvailable === false && (now - _apiCheckedAt) < 3000) return false;
-  try {
-    const res = await fetch(`${API_URL}/api/health`, { signal: AbortSignal.timeout(2000) });
-    _apiAvailable = res.ok;
-  } catch {
-    _apiAvailable = false;
-  }
-  _apiCheckedAt = now;
-  return _apiAvailable;
-}
-
-async function apiFetch(path, options = {}) {
-  const available = await checkApi();
-  if (!available) throw new Error('API unavailable');
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    // A 401 from any route means the session expired or was revoked.
-    // The app listens for this and returns to the login screen.
-    if (res.status === 401 && !path.startsWith('/api/auth/')) {
-      window.dispatchEvent(new Event('jammie:unauthorized'));
-    }
-    throw new Error(err.error || res.statusText);
-  }
-  return res.json();
-}
 
 // db — tries real API first, falls back to mock automatically
 const db = {
@@ -2054,6 +2018,8 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       // populates — `purpose` is a separate legacy column the import never
       // touches, so reading it left every imported refinance showing as a
       // Purchase. Any non-empty refi_type means this is a refinance.
+      // refi_type still wins (a MISMO import sets it, not purpose); otherwise
+      // the stored purpose (set by the invite dialog or the last save).
       mortgagePurpose: loanRow.refi_type ? 'Refinance' : (loanRow.purpose || 'Purchase Home'),
       refiType:        loanRow.refi_type || '',
       mortgageType: loanRow.product?.includes('FHA')    ? 'FHA'
@@ -2294,6 +2260,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           down_payment:          parseFloat(formData.downPayment)         || null,
           existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
           refinance_program:     formData.refinanceProgram || null,
+          purpose:               formData.mortgagePurpose || 'Purchase Home',
           refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
           pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
           estimated_closing_costs: parseFloat(formData.estimated_closing_costs) || null,
@@ -2490,6 +2457,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           down_payment:          parseFloat(formData.downPayment)         || null,
           existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
           refinance_program:     formData.refinanceProgram || null,
+          purpose:               formData.mortgagePurpose || 'Purchase Home',
           refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
           pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
           estimated_closing_costs: parseFloat(formData.estimated_closing_costs) || null,
@@ -3004,6 +2972,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {saving && <span style={{fontSize:12,color:'rgba(255,255,255,.6)',display:'flex',alignItems:'center',gap:4}}>⏳ Saving...</span>}
+          <InviteControl loan={loan} showToast={showToast}
+            borrowerName={`${borrowers[0]?.firstName||''} ${borrowers[0]?.lastName||''}`.trim() || loan.borrower}
+            borrowerEmail={borrowers[0]?.email || ''} />
           <button className="btn btn-sm" style={{background:'rgba(255,255,255,.15)',color:'#fff',border:'1px solid rgba(255,255,255,.3)'}} onClick={handleSave}>💾 Save</button>
           <button className="btn btn-sm" style={{background:'#ef4444',color:'#fff',border:'none'}} onClick={async()=>{ await autoSave(); onBack(); }}>← Back to Loans</button>
         </div>
@@ -4220,24 +4191,18 @@ function LoansPage({ showToast, currentUser }) {
     }
   };
 
-  const handleNewLoan = async () => {
-    try {
-      const newLoan = await db.loans.insert({
-        loan_number:      'L' + Date.now(),
-        loan_status:      'App Intake',
-        borrower:         'New Borrower',
-        subject_property: 'TBD',
-        product:          'TBD',
-        lender:           'No Lender',
-        mlo_id:           currentUser?.id || 1,
-      });
-      setLoans(p => [newLoan, ...p]);
-      // Seed default ARIVE-style fees for this loan
-      if (newLoan?.id) await seedDefaultFees(newLoan.id);
-      setOpen1003(newLoan);
-    } catch (err) {
-      showToast('⚠ Could not create loan: ' + err.message);
+  const [newLoanOpen, setNewLoanOpen] = useState(false);
+  const handleCreated = (newLoan, inviteResult) => {
+    setNewLoanOpen(false);
+    setLoans(p => [newLoan, ...p]);
+    if (inviteResult) {
+      showToast(inviteResult.dryRun
+        ? '✓ Loan created — invitation link is in the server log (email dry-run)'
+        : inviteResult.emailed ? `✓ Loan created — invitation emailed to ${inviteResult.status?.invite?.email}` : '⚠ Loan created, but the invitation email failed — resend from the loan header');
+    } else {
+      showToast('✓ Loan created');
     }
+    setOpen1003(newLoan);
   };
 
   // If 1003 is open, render the full-page form instead
@@ -4259,7 +4224,7 @@ function LoansPage({ showToast, currentUser }) {
             <input placeholder="Search loans..." value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={handleNewLoan}>+ New Loan</button>
+        <button className="btn btn-primary" onClick={()=>setNewLoanOpen(true)}>+ New Loan</button>
       </div>
 
       <div className="table-wrap">
@@ -4296,6 +4261,7 @@ function LoansPage({ showToast, currentUser }) {
       </div>
 
       {confirmDel && <ConfirmModal msg={`Delete loan for "${confirmDel.borrower}"? This cannot be undone.`} onConfirm={handleDelete} onCancel={()=>setConfirmDel(null)} />}
+      {newLoanOpen && <NewLoanDialog currentUser={currentUser} showToast={showToast} onClose={()=>setNewLoanOpen(false)} onCreated={handleCreated} />}
     </div>
   );
 }
@@ -4868,11 +4834,207 @@ Write a 3-paragraph executive summary with: key wins, areas needing attention, a
 }
 
 // ─────────────────────────────────────────────────────────────────
-// AUTH CONSTANTS
+// NEW LOAN — name + email + purpose, then optionally invite the
+// borrower to the portal in the same step. Replaces the old one-click
+// "New Borrower" placeholder row.
 // ─────────────────────────────────────────────────────────────────
-const BORROWER_CREDENTIALS = { email: 'demo@example.com', password: 'Demo123!' };
-const FIXED_MFA_CODE = '123456';
-const MLO_PROFILE = { name:'Ismael Castiblanco', initials:'IC', title:'Loan Officer', nmls:'#1616977', email:'icastiblanco@phomemortgage.com', phone:'(678) 505-7898' };
+const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function NewLoanDialog({ currentUser, onClose, onCreated, showToast }) {
+  const [first, setFirst]     = useState('');
+  const [last, setLast]       = useState('');
+  const [email, setEmail]     = useState('');
+  const [purpose, setPurpose] = useState('Purchase Home');
+  const [invite, setInvite]   = useState(true);
+  const [busy, setBusy]       = useState(false);
+  const [err, setErr]         = useState('');
+
+  const submit = async () => {
+    setErr('');
+    if (!first.trim() || !last.trim()) { setErr('First and last name are required.'); return; }
+    if (!EMAIL_OK.test(email.trim()))   { setErr('A valid email is required.'); return; }
+    setBusy(true);
+    try {
+      const newLoan = await db.loans.insert({
+        loan_number:      'L' + Date.now(),
+        loan_status:      'App Intake',
+        borrower:         `${first.trim()} ${last.trim()}`,
+        subject_property: 'TBD',
+        product:          'TBD',
+        lender:           'No Lender',
+        purpose,
+        mlo_id:           currentUser?.id || 1,
+      });
+      if (newLoan?.id) await seedDefaultFees(newLoan.id);
+      let inviteResult = null;
+      if (invite) {
+        inviteResult = await apiFetch(`/api/loan-invites/${newLoan.id}`, { method:'POST',
+          body:{ first_nm:first.trim(), last_nm:last.trim(), email:email.trim(), purpose } });
+      } else {
+        // Still record the name/email on the 1003 so the form opens filled in.
+        await db.form1003.insert({ loan_id:newLoan.id, first_nm:first.trim(), last_nm:last.trim(), email:email.trim() }).catch(()=>{});
+      }
+      const fresh = await db.loans.getOne(newLoan.id).catch(() => newLoan);
+      onCreated(fresh || newLoan, inviteResult);
+    } catch (e) { setErr(e.message || 'Could not create loan'); }
+    finally { setBusy(false); }
+  };
+
+  const field = (label, val, set, type='text', autoFocus=false) => (
+    <div className="form-group" style={{marginBottom:12}}>
+      <label className="form-label">{label}</label>
+      <input className="form-input" type={type} value={val} onChange={e=>set(e.target.value)} autoFocus={autoFocus}
+        onKeyDown={e=>e.key==='Enter'&&submit()} />
+    </div>
+  );
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header"><span className="modal-title">New loan</span><button className="btn-icon" onClick={onClose} aria-label="Close">✕</button></div>
+        <div className="modal-body">
+          {err && <div className="warning-box" style={{color:'#b91c1c',background:'#fef2f2',borderColor:'#fecaca'}}>{err}</div>}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            {field('First name *', first, setFirst, 'text', true)}
+            {field('Last name *', last, setLast)}
+          </div>
+          {field('Borrower email *', email, setEmail, 'email')}
+          <div className="form-group" style={{marginBottom:12}}>
+            <label className="form-label">Purpose</label>
+            <select className="form-input" value={purpose} onChange={e=>setPurpose(e.target.value)}>
+              <option>Purchase Home</option><option>Refinance</option>
+            </select>
+          </div>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:'var(--text-2)',cursor:'pointer',marginTop:4}}>
+            <input type="checkbox" checked={invite} onChange={e=>setInvite(e.target.checked)} style={{width:16,height:16,accentColor:'var(--accent)'}}/>
+            Email the borrower an invitation to the portal now
+          </label>
+          <div style={{fontSize:12,color:'var(--text-3)',marginTop:8}}>You can send or resend the invitation later from the loan's header.</div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : (invite ? 'Create & send invite' : 'Create loan')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// INVITE CONTROL — lives in the Form 1003 header. Shows where the
+// borrower is (Not invited / Invited / In progress / Submitted) and
+// offers Invite / Resend / Copy link / Revoke.
+// ─────────────────────────────────────────────────────────────────
+const APP_STATUS_LABEL = { draft:'Not invited', invited:'Invited', in_progress:'In progress', submitted:'Submitted' };
+const APP_STATUS_COLOR = { draft:'#94a3b8', invited:'#fbbf24', in_progress:'#60a5fa', submitted:'#34d399' };
+
+function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
+  const [st, setSt]       = useState(null);     // /api/loan-invites/:id payload
+  const [open, setOpen]   = useState(false);
+  const [busy, setBusy]   = useState(false);
+  const [link, setLink]   = useState('');
+  const [first, setFirst] = useState('');
+  const [last, setLast]   = useState('');
+  const [email, setEmail] = useState('');
+
+  const load = useCallback(() => {
+    if (!loan?.id) return;
+    apiFetch(`/api/loan-invites/${loan.id}`).then(setSt).catch(() => setSt(null));
+  }, [loan?.id]);
+  useEffect(load, [load]);
+
+  // Prefill the dialog from whatever the 1003 currently holds.
+  const openDialog = () => {
+    const parts = String(borrowerName || '').trim().split(/\s+/);
+    setFirst(parts[0] || ''); setLast(parts.slice(1).join(' ') || '');
+    setEmail(borrowerEmail || st?.invite?.email || '');
+    setLink(''); setOpen(true);
+  };
+
+  const send = async (resend=false) => {
+    setBusy(true);
+    try {
+      const r = resend
+        ? await apiFetch(`/api/loan-invites/${loan.id}/resend`, { method:'POST' })
+        : await apiFetch(`/api/loan-invites/${loan.id}`, { method:'POST', body:{ first_nm:first.trim(), last_nm:last.trim(), email:email.trim() } });
+      setSt(r.status); setLink(r.inviteUrl || '');
+      showToast(r.dryRun ? '✓ Invitation created (email in dry-run mode — copy the link)' : r.emailed ? `✓ Invitation emailed to ${r.status?.invite?.email}` : `⚠ Saved, but the email failed: ${r.emailError || 'unknown'} — copy the link instead`);
+    } catch (e) { showToast('⚠ ' + (e.message || 'Could not send invitation')); }
+    finally { setBusy(false); }
+  };
+  const revoke = async () => {
+    setBusy(true);
+    try { const r = await apiFetch(`/api/loan-invites/${loan.id}`, { method:'DELETE' }); setSt(r.status); setLink(''); showToast('Invitation revoked'); }
+    catch (e) { showToast('⚠ ' + e.message); }
+    finally { setBusy(false); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); showToast('✓ Link copied'); }
+    catch { window.prompt('Copy this link:', link); }
+  };
+
+  const status = st?.applicationStatus || loan?.application_status || 'draft';
+  const inv = st?.invite;
+  const pending = inv?.state === 'pending';
+  const canInvite = status !== 'submitted';
+
+  return (
+    <>
+      <button onClick={openDialog} title="Borrower portal invitation"
+        style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.2)',borderRadius:6,padding:'4px 10px',color:'#fff',fontSize:12,cursor:'pointer'}}>
+        <span style={{width:8,height:8,borderRadius:'50%',background:APP_STATUS_COLOR[status]||'#94a3b8',flexShrink:0}}/>
+        {APP_STATUS_LABEL[status] || status}
+      </button>
+      {open && createPortal(
+        /* Portal to <body>: this control sits inside the sticky 1003 topbar, whose
+           stacking context would otherwise trap the overlay under the footer bar
+           and make it inherit the topbar's white text. */
+        <div className="modal-overlay" onClick={()=>setOpen(false)}>
+          <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><span className="modal-title">Borrower portal</span><button className="btn-icon" onClick={()=>setOpen(false)} aria-label="Close">✕</button></div>
+            <div className="modal-body">
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,fontSize:13}}>
+                <span style={{width:10,height:10,borderRadius:'50%',background:APP_STATUS_COLOR[status]}}/>
+                <strong>{APP_STATUS_LABEL[status]}</strong>
+                {inv && <span style={{color:'var(--text-3)'}}>· {inv.email} · {inv.state === 'pending' ? `expires ${new Date(inv.expiresAt).toLocaleDateString()}` : inv.state}</span>}
+              </div>
+              {st?.borrowers?.length > 0 && (
+                <div style={{fontSize:12,color:'var(--text-2)',marginBottom:14}}>
+                  Signed up: {st.borrowers.map(b=>`${b.first_nm||''} ${b.last_nm||''} (${b.email})`).join(', ')}
+                </div>
+              )}
+              {canInvite && !pending && status !== 'in_progress' && (
+                <>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                    <div className="form-group" style={{marginBottom:12}}><label className="form-label">First name *</label><input className="form-input" value={first} onChange={e=>setFirst(e.target.value)}/></div>
+                    <div className="form-group" style={{marginBottom:12}}><label className="form-label">Last name *</label><input className="form-input" value={last} onChange={e=>setLast(e.target.value)}/></div>
+                  </div>
+                  <div className="form-group" style={{marginBottom:12}}><label className="form-label">Borrower email *</label><input className="form-input" type="email" value={email} onChange={e=>setEmail(e.target.value)}/></div>
+                </>
+              )}
+              {link && (
+                <div style={{marginTop:6}}>
+                  <label className="form-label">Invitation link</label>
+                  <div style={{display:'flex',gap:6}}>
+                    <input className="form-input" readOnly value={link} onFocus={e=>e.target.select()} style={{fontSize:11}}/>
+                    <button className="btn btn-sm" onClick={copy}>Copy</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer" style={{flexWrap:'wrap'}}>
+              {pending && <button className="btn" onClick={revoke} disabled={busy}>Revoke</button>}
+              {inv && !pending && status === 'in_progress' && <span style={{fontSize:12,color:'var(--text-3)',marginRight:'auto'}}>The borrower has an account — no new invitation needed.</span>}
+              <button className="btn" onClick={()=>setOpen(false)} disabled={busy}>Close</button>
+              {canInvite && pending && <button className="btn btn-primary" onClick={()=>send(true)} disabled={busy}>{busy ? 'Sending…' : 'Resend'}</button>}
+              {canInvite && !pending && status !== 'in_progress' && <button className="btn btn-primary" onClick={()=>send(false)} disabled={busy || !first.trim() || !last.trim() || !EMAIL_OK.test(email.trim())}>{busy ? 'Sending…' : (inv ? 'Send new invitation' : 'Send invitation')}</button>}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────
 // CHANGE PASSWORD (MLO) — all seeded accounts start with the same
@@ -4925,7 +5087,7 @@ function ChangePasswordDialog({ onClose, onDone }) {
 // ─────────────────────────────────────────────────────────────────
 // MLO LOGIN GATE
 // ─────────────────────────────────────────────────────────────────
-function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
+function MLOLogin({ onAuthenticated }) {
   const [screen, setScreen] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -4989,7 +5151,7 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
               <p style={{textAlign:'center',fontSize:14,color:'#4b5563',marginBottom:16}}>Don't have an account? <a className="auth-link" onClick={()=>setScreen('signup1')}>Sign Up</a></p>
               <div className="auth-borrower-box">
                 <div style={{fontSize:11,fontWeight:600,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Are you a Borrower?</div>
-                <a className="auth-link" onClick={onBorrowerPortal} style={{fontSize:14,cursor:'pointer'}}>Go to Borrower Portal →</a>
+                <a className="auth-link" href="/apply" style={{fontSize:14}}>Go to Borrower Portal →</a>
               </div>
             </div>
           </>}
@@ -5098,264 +5260,27 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SECTION WRAPPER — defined outside BorrowerPortal to prevent
-// re-renders that cause input focus loss
-// ─────────────────────────────────────────────────────────────────
-function SectionWrap({ num, title, children }) {
-  return (
-    <div className="b-section">
-      <div className="b-section-hdr">Section {num} — {title}</div>
-      <div className="b-section-body">{children}</div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// BORROWER PORTAL — SCROLLABLE 1003
-// ─────────────────────────────────────────────────────────────────
-function BorrowerPortal({ borrower, onLogout }) {
-  const [formData, setFormData] = useState({
-    incomes:[], assets:[], liabilities:[], reos:[],
-    mortgageType:'', amortType:'Fixed', rate:'', salesPrice:'', baseLoan:'', financedFees:'',
-    spAddr1:'', spCity:'', spState:'', spZip:'', propType:'Single Family Residence', occupancy:'Primary Residence',
-    titleName:'', mannerHeld:'', propRights:'Fee Simple',
-  });
-  const [borrowers, setBorrowers] = useState([emptyBorrower1003('Borrower')]);
-  const [activeBIdx, setActiveBIdx] = useState(0);
-  const [saved, setSaved] = useState(false);
-  const [scrollPct, setScrollPct] = useState(0);
-
-  useEffect(() => {
-    const onScroll = () => {
-      const el = document.documentElement;
-      const pct = Math.min(100, Math.round((el.scrollTop / (el.scrollHeight - el.clientHeight || 1)) * 100));
-      setScrollPct(pct);
-    };
-    window.addEventListener('scroll', onScroll);
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const handleSave = () => { setSaved(true); setTimeout(() => setSaved(false), 2500); };
-
-  return (
-    <div className="b-wrap">
-      <div style={{position:'fixed',top:0,left:0,right:0,zIndex:100,height:3}}>
-        <div className="b-progress-bar" style={{width:`${scrollPct}%`}}/>
-      </div>
-      <div className="b-header">
-        <div className="b-header-left">
-          <div style={{color:'#fff',fontSize:17,fontWeight:700,letterSpacing:'-.5px'}}>Jammie <span style={{fontSize:9,color:'#60a5fa',fontWeight:500}}>MORTGAGE</span></div>
-          <div className="b-borrower-name">👤 {borrower.name}</div>
-          <div className="b-advisor-pill">
-            <div className="b-advisor-avatar">{MLO_PROFILE.initials}</div>
-            <div className="b-advisor-text">Advisor: <strong>{MLO_PROFILE.name}</strong> · {MLO_PROFILE.phone}</div>
-          </div>
-        </div>
-        <button className="b-logout-btn" onClick={onLogout}>Sign Out</button>
-      </div>
-      <div className="b-body">
-        <div className="b-page-title">Uniform Residential Loan Application — 1003</div>
-        <div className="b-page-sub">Complete all sections below and save when done. Scroll down to continue through each section.</div>
-        <SectionWrap num={1} title="Personal Information"><Section1PersonalInfo borrowers={borrowers} setBorrowers={setBorrowers} activeBIdx={activeBIdx} setActiveBIdx={setActiveBIdx}/></SectionWrap>
-        <SectionWrap num={2} title="Employment & Income"><Section2Employment data={formData} setData={setFormData}/></SectionWrap>
-        <SectionWrap num={3} title="Assets Information"><Section3Assets data={formData} setData={setFormData}/></SectionWrap>
-        <SectionWrap num={4} title="Liabilities Information"><Section4Liabilities data={formData} setData={setFormData}/></SectionWrap>
-        <SectionWrap num={5} title="Real Estate Owned"><Section5REO data={formData} setData={setFormData}/></SectionWrap>
-        <SectionWrap num={6} title="Loan Information"><Section6LoanInfo data={formData} setData={setFormData}/></SectionWrap>
-        <SectionWrap num={7} title="Housing Expenses"><Section7Housing data={formData} setData={setFormData}/></SectionWrap>
-        <SectionWrap num={8} title="Details of Transaction"><Section8DOT data={formData} setData={setFormData} loanData={formData}/></SectionWrap>
-        <SectionWrap num={9} title="Declarations"><Section9Declarations data={formData} setData={setFormData} borrowers={borrowers}/></SectionWrap>
-        <SectionWrap num={10} title="Government Monitoring"><Section10GovtMonitoring data={formData} setData={setFormData} borrowers={borrowers}/></SectionWrap>
-      </div>
-      <div className="b-save-bar">
-        <div className="b-save-info">
-          📋 1003 Application · <strong>{borrower.name}</strong>
-          <span style={{marginLeft:12,color:'#6b7280'}}>Progress: {scrollPct}% scrolled</span>
-        </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          {saved && <span style={{fontSize:12,color:'#15803d',fontWeight:600}}>✓ Saved!</span>}
-          <button onClick={handleSave} className="btn btn-primary" style={{padding:'7px 18px'}}>💾 Save Application</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// BORROWER LOGIN
-// ─────────────────────────────────────────────────────────────────
-function BorrowerLogin({ onAuthenticated, onMLOPortal }) {
-  const [screen, setScreen] = useState('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw, setShowPw] = useState(false);
-  const [mfaCode, setMfaCode] = useState('');
-  const [verifyCode, setVerifyCode] = useState('');
-  const [error, setError] = useState('');
-  const [resendSecs, setResendSecs] = useState(0);
-  const timerRef = useRef(null);
-  const [bFirst, setBFirst] = useState('');
-  const [bLast, setBLast] = useState('');
-  const [bEmail, setBEmail] = useState('');
-  const [bPw, setBPw] = useState('');
-  const [captcha, setCaptcha] = useState(false);
-
-  const startResend = () => {
-    setResendSecs(30);
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setResendSecs(s => { if(s<=1){clearInterval(timerRef.current);return 0;} return s-1; });
-    }, 1000);
-  };
-
-  const inp = { width:'100%', padding:'16px 14px', border:'1.5px solid #e5e7eb', borderRadius:8, fontSize:15, color:'#1e2d45', outline:'none', fontFamily:"'DM Sans',sans-serif" };
-
-  const handleLogin = () => {
-    setError('');
-    if (!email.trim()||!password) { setError('Please enter your email and password.'); return; }
-    if (email.toLowerCase() !== BORROWER_CREDENTIALS.email.toLowerCase() || password !== BORROWER_CREDENTIALS.password) {
-      setError('Invalid email or password. Try: demo@example.com / Demo123!'); return;
-    }
-    setScreen('mfa'); startResend();
-  };
-
-  const handleMFA = () => {
-    setError('');
-    if (mfaCode !== FIXED_MFA_CODE) { setError('Incorrect code. Use: ' + FIXED_MFA_CODE); return; }
-    onAuthenticated({ name: bFirst && bLast ? `${bFirst} ${bLast}` : 'Demo Borrower', email });
-  };
-
-  const handleSignup = () => {
-    setError('');
-    if (!bFirst||!bLast||!bEmail||!bPw) { setError('Please fill all required fields.'); return; }
-    if (!captcha) { setError('Please complete the reCAPTCHA.'); return; }
-    if (bPw.length < 8) { setError('Password must be at least 8 characters.'); return; }
-    setScreen('verify');
-  };
-
-  const handleVerify = () => {
-    setError('');
-    if (verifyCode !== FIXED_MFA_CODE) { setError('Incorrect code. Use: ' + FIXED_MFA_CODE); return; }
-    onAuthenticated({ name:`${bFirst} ${bLast}`, email:bEmail });
-  };
-
-  return (
-    <div className="auth-wrap">
-      <div className="auth-header">
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <div><div className="auth-logo">Jammie</div><div className="auth-logo-sub">MORTGAGE CRM</div></div>
-          <span style={{background:'rgba(37,99,235,.3)',color:'#93c5fd',fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:20,border:'1px solid rgba(37,99,235,.4)'}}>Borrower Portal</span>
-        </div>
-        <a onClick={onMLOPortal} style={{color:'#94a3b8',fontSize:13,textDecoration:'none',cursor:'pointer'}}>← MLO Login</a>
-      </div>
-      <div className="auth-main">
-        <div className="auth-card">
-
-          {screen === 'login' && <>
-            <div className="auth-card-hdr">Borrower Portal — Log In</div>
-            <div className="auth-card-body">
-              <div className="auth-title">Welcome Back</div>
-              <div style={{fontSize:13,color:'#4b5563',textAlign:'center',marginBottom:20}}>Completing your application with <strong>{MLO_PROFILE.name}</strong></div>
-              {error && <div className="auth-alert show">⚠ {error}</div>}
-              <div className="auth-field"><label>Email Address *</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={inp} placeholder=" "/></div>
-              <div className="auth-field" style={{position:'relative'}}>
-                <label>Password *</label>
-                <input type={showPw?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={{...inp,paddingRight:44}} placeholder=" "/>
-                <button className="auth-pw-toggle" onClick={()=>setShowPw(p=>!p)} type="button">{showPw?'👁':'🙈'}</button>
-              </div>
-              <button className="auth-btn" onClick={handleLogin}>LOG IN</button>
-              <div style={{textAlign:'center',fontSize:14,color:'#4b5563'}}>New borrower? <a className="auth-link" onClick={()=>setScreen('signup')}>Apply Now</a></div>
-            </div>
-          </>}
-
-          {screen === 'signup' && <>
-            <div className="auth-card-hdr">Borrower Portal — Apply Now</div>
-            <div className="auth-card-body">
-              <div className="auth-title" style={{fontSize:24}}>Apply Now</div>
-              <div style={{fontSize:13,color:'#4b5563',textAlign:'center',marginBottom:16}}>Already have an account? <a className="auth-link" onClick={()=>setScreen('login')}>Sign In</a></div>
-              <div style={{border:'1.5px solid #e5e7eb',borderRadius:10,padding:'14px 16px',display:'flex',alignItems:'center',gap:14,marginBottom:20,background:'#f8fafc'}}>
-                <div style={{width:52,height:52,borderRadius:'50%',background:'#6b7fd7',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,flexShrink:0}}>{MLO_PROFILE.initials}</div>
-                <div>
-                  <div style={{fontSize:11,color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:2}}>Your Mortgage Advisor</div>
-                  <div style={{fontSize:15,fontWeight:700,color:'#1e2d45'}}>{MLO_PROFILE.name}</div>
-                  <div style={{fontSize:12,color:'#6b7280'}}>{MLO_PROFILE.title} · {MLO_PROFILE.nmls}</div>
-                  <div style={{fontSize:12,color:'#6b7280'}}>{MLO_PROFILE.phone}</div>
-                </div>
-              </div>
-              {error && <div className="auth-alert show" style={{marginBottom:12}}>⚠ {error}</div>}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14}}>
-                <div><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>First Name *</label><input type="text" value={bFirst} onChange={e=>setBFirst(e.target.value)} style={inp}/></div>
-                <div><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Last Name *</label><input type="text" value={bLast} onChange={e=>setBLast(e.target.value)} style={inp}/></div>
-              </div>
-              <div style={{marginBottom:14}}><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Email *</label><input type="email" value={bEmail} onChange={e=>setBEmail(e.target.value)} style={inp}/></div>
-              <div style={{marginBottom:20}}><label style={{display:'block',fontSize:13,fontWeight:500,color:'#4b5563',marginBottom:5}}>Choose Password *</label><input type="password" value={bPw} onChange={e=>setBPw(e.target.value)} style={inp}/></div>
-              <div style={{marginBottom:20}}>
-                <div style={{fontSize:13,fontWeight:500,color:'#1e2d45',marginBottom:8}}>Please check the box below to proceed *</div>
-                <div onClick={()=>setCaptcha(p=>!p)} style={{border:`1.5px solid ${captcha?'#16a34a':'#e5e7eb'}`,borderRadius:8,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',background:captcha?'#f0fdf4':'#f9fafb',cursor:'pointer'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:12}}>
-                    <div style={{width:22,height:22,borderRadius:3,border:`2px solid ${captcha?'#16a34a':'#d1d5db'}`,background:captcha?'#16a34a':'#fff',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:14,fontWeight:700}}>{captcha?'✓':''}</div>
-                    <span style={{fontSize:14,color:'#1e2d45',fontWeight:500}}>I'm not a robot</span>
-                  </div>
-                  <div style={{textAlign:'right'}}><div style={{fontSize:22}}>🔄</div><div style={{fontSize:10,color:'#9ca3af'}}>reCAPTCHA</div></div>
-                </div>
-              </div>
-              <button className="auth-btn" onClick={handleSignup}>CREATE ACCOUNT</button>
-              <div className="auth-terms">By creating an account, you agree to our <a href="#">Terms of Service</a></div>
-            </div>
-          </>}
-
-          {screen === 'mfa' && <>
-            <div className="auth-card-hdr">Two-Factor Authentication</div>
-            <div className="auth-card-body">
-              <div className="auth-title" style={{fontSize:22}}>Verify Your Identity</div>
-              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:16}}>We've sent a text message to:</p>
-              <div className="auth-phone-box">XXXXXXXX9999</div>
-              {error && <div className="auth-alert show">⚠ {error}</div>}
-              <input className="auth-code-input" type="text" maxLength={6} value={mfaCode} onChange={e=>setMfaCode(e.target.value.replace(/\D/g,''))} onKeyDown={e=>e.key==='Enter'&&handleMFA()} placeholder="______" inputMode="numeric"/>
-              <div style={{fontSize:12,color:'#6b7280',textAlign:'center',marginBottom:12}}>Demo code: <strong>{FIXED_MFA_CODE}</strong></div>
-              <label className="auth-check-row"><input type="checkbox" defaultChecked/> Remember this device for 30 days</label>
-              <button className="auth-btn" onClick={handleMFA}>VERIFY</button>
-              <div style={{textAlign:'center',fontSize:14,color:'#4b5563',marginBottom:12}}>
-                Didn't receive a code?{' '}
-                {resendSecs > 0 ? <span style={{color:'#9ca3af',fontWeight:600}}>({resendSecs}s)</span> : <a className="auth-link" onClick={()=>startResend()}>Resend</a>}
-              </div>
-              <button className="auth-btn-sec" onClick={()=>setScreen('login')}>← Back</button>
-            </div>
-          </>}
-
-          {screen === 'verify' && <>
-            <div className="auth-card-hdr">Verify Your Account</div>
-            <div className="auth-card-body">
-              <div className="auth-title" style={{fontSize:22}}>Check Your Phone</div>
-              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:16}}>We've sent a 6-digit code to activate your account.</p>
-              <div className="auth-phone-box">XXXXXXXX0000</div>
-              {error && <div className="auth-alert show">⚠ {error}</div>}
-              <input className="auth-code-input" type="text" maxLength={6} value={verifyCode} onChange={e=>setVerifyCode(e.target.value.replace(/\D/g,''))} onKeyDown={e=>e.key==='Enter'&&handleVerify()} placeholder="______" inputMode="numeric"/>
-              <div style={{fontSize:12,color:'#6b7280',textAlign:'center',marginBottom:12}}>Demo code: <strong>{FIXED_MFA_CODE}</strong></div>
-              <button className="auth-btn" onClick={handleVerify}>VERIFY ACCOUNT</button>
-              <div style={{textAlign:'center',fontSize:13,color:'#4b5563'}}>Didn't receive a code? <a className="auth-link">Resend</a></div>
-            </div>
-          </>}
-
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────
-export default function App() {
-  // 'none' | 'mlo' | 'borrower'
-  const [portalMode, setPortalMode] = useState(() => {
-    // Check URL param: ?portal=borrower → borrower portal
-    const p = new URLSearchParams(window.location.search).get('portal');
-    return p === 'borrower' ? 'borrower' : 'mlo';
-  });
+// The borrower portal lives under /apply. Everything else is the CRM.
+const IS_BORROWER_PATH = window.location.pathname === '/apply' || window.location.pathname.startsWith('/apply/');
 
+export default function App() {
+  if (IS_BORROWER_PATH) {
+    return (
+      <>
+        <GlobalStyles />
+        <Suspense fallback={<div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'#6b7280',fontSize:13}}>Loading…</div>}>
+          <BorrowerApp />
+        </Suspense>
+      </>
+    );
+  }
+  return <MloApp />;
+}
+
+function MloApp() {
   const [mloUser, setMloUser] = useState(null);       // null = not logged in
-  const [borrowerUser, setBorrowerUser] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [toast, setToast] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
@@ -5374,13 +5299,13 @@ export default function App() {
   const showToast = useCallback(msg => setToast(msg), []);
 
   // ── Session: restore on load, drop on 401, real sign-out ──
-  const [authChecked, setAuthChecked] = useState(portalMode !== 'mlo');
+  const [authChecked, setAuthChecked] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   useEffect(() => {
-    if (portalMode !== 'mlo') return;
     // The cookie is httpOnly, so the only way to know if we're signed in is
     // to ask. Without this, every refresh would bounce to the login screen.
-    apiFetch('/api/auth/me').then(u => setMloUser(u)).catch(() => {}).finally(() => setAuthChecked(true));
+    // A borrower session (same cookie, other portal) is not an MLO sign-in.
+    apiFetch('/api/auth/me').then(u => { if (u && u.type === 'mlo') setMloUser(u); }).catch(() => {}).finally(() => setAuthChecked(true));
   }, []);
   useEffect(() => {
     const onUnauth = () => setMloUser(null);
@@ -5392,21 +5317,8 @@ export default function App() {
     setMloUser(null);
   };
 
-  // ── BORROWER PORTAL MODE ──────────────────────────
-  if (portalMode === 'borrower') {
-    if (!borrowerUser) return <><GlobalStyles/><BorrowerLogin onAuthenticated={setBorrowerUser} onMLOPortal={()=>setPortalMode('mlo')}/><IOSInstallHint/></>;
-    return (
-      <>
-        <GlobalStyles/>
-        <BorrowerPortal borrower={borrowerUser} onLogout={()=>setBorrowerUser(null)}/>
-        {toast && <Toast msg={toast} onDone={()=>setToast(null)}/>}
-      </>
-    );
-  }
-
-  // ── MLO PORTAL MODE ───────────────────────────────
   if (!authChecked) return <><GlobalStyles/><div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'var(--text-3)',fontSize:13}}>Loading…</div></>;
-  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser} onBorrowerPortal={()=>setPortalMode('borrower')}/><IOSInstallHint/></>;
+  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser}/><IOSInstallHint/></>;
 
   const navItems = [
     {id:'dashboard',label:'Dashboard'},

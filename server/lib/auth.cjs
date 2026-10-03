@@ -24,10 +24,10 @@
  *   /api/health          — deploy checks, the frontend's checkApi()
  *   /api/auth/login      — mounted before the gate
  *   /api/auth/logout     — same (clears whatever cookie is present)
- *   /api/invites/*       — Phase 2: accept-invite screens
+ *   /api/invites/:token  — invite preview + accept (the token is the credential)
  *
  * ROLES BY PATH
- *   /api/apply/*   -> borrower     (Phase 2)
+ *   /api/apply/*   -> borrower
  *   everything else -> mlo
  *
  * COOKIE_SECURE
@@ -52,11 +52,13 @@ const PUBLIC = [
   /^\/api\/health\/?$/,
   /^\/api\/auth\/login\/?$/,
   /^\/api\/auth\/logout\/?$/,
-  /^\/api\/invites\//,            // Phase 2
+  // Invite acceptance: the token IS the credential. Only these two shapes.
+  /^\/api\/invites\/[A-Za-z0-9_-]{20,}\/?$/,          // GET  preview
+  /^\/api\/invites\/[A-Za-z0-9_-]{20,}\/accept\/?$/,  // POST accept
 ];
 
 const ROLE_BY_PREFIX = [
-  ['/api/apply', ['borrower']],   // Phase 2
+  ['/api/apply', ['borrower']],
 ];
 const DEFAULT_ROLES = ['mlo'];
 
@@ -91,6 +93,20 @@ function publicUser(row) {
   };
 }
 
+function publicBorrower(row) {
+  return {
+    type: 'borrower',
+    id: row.id,
+    email: row.email,
+    firstName: row.first_nm,
+    lastName: row.last_nm,
+    name: [row.first_nm, row.last_nm].filter(Boolean).join(' ') || row.email,
+    initials: initials(row.first_nm, row.last_nm),
+    lang: row.preferred_lang || 'en',
+    isAdmin: false,
+  };
+}
+
 // ── passwords ───────────────────────────────────────────────────────────
 async function hashPassword(plain) {
   return bcrypt.hash(String(plain), BCRYPT_COST);
@@ -118,6 +134,10 @@ async function createSession(req, res, userType, userId) {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true, secure: cookieSecure(), sameSite: 'lax', path: '/', expires,
   });
+  // Make the new session visible to the rest of THIS request (login returns
+  // the resolved user). Without this, resolveSession would read the browser's
+  // previous cookie — a stale or different account.
+  req.cookies = { ...(req.cookies || {}), [COOKIE_NAME]: token };
   return token;
 }
 
@@ -147,11 +167,8 @@ async function resolveSession(req) {
       'SELECT id, email, username, first_nm, last_nm, nmls_number, is_admin, is_active FROM mlo_users WHERE id=?', [s.user_id]);
     if (u[0] && u[0].is_active) user = publicUser(u[0]);
   } else if (s.user_type === 'borrower') {
-    // Phase 2 fills this in (borrower_users).
-    const [u] = await db.query('SELECT id, email, first_nm, last_nm, preferred_lang FROM borrower_users WHERE id=?', [s.user_id]).catch(() => [[]]);
-    if (u[0]) user = { type: 'borrower', id: u[0].id, email: u[0].email, firstName: u[0].first_nm, lastName: u[0].last_nm,
-      name: [u[0].first_nm, u[0].last_nm].filter(Boolean).join(' '), initials: initials(u[0].first_nm, u[0].last_nm),
-      lang: u[0].preferred_lang || 'en', isAdmin: false };
+    const [u] = await db.query('SELECT id, email, first_nm, last_nm, preferred_lang, is_active FROM borrower_users WHERE id=?', [s.user_id]);
+    if (u[0] && u[0].is_active) user = publicBorrower(u[0]);
   }
   if (!user) return null;
 
@@ -222,6 +239,6 @@ function install(app) {
 module.exports = {
   install, authenticate, requireRole, requireSession, loginLimiter,
   createSession, destroySession, destroyOtherSessions, resolveSession,
-  hashPassword, verifyPassword, validateNewPassword, publicUser,
+  hashPassword, verifyPassword, validateNewPassword, publicUser, publicBorrower,
   COOKIE_NAME,
 };
