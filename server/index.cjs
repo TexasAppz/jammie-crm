@@ -8,6 +8,7 @@ app.use(cors({ origin: ['https://jammie-mlo.com','https://www.jammie-mlo.com'] }
 app.use(express.json({ limit: '15mb' }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+require('./lib/auth.cjs').install(app);
 app.use('/api/loans',    require('./routes/loans.cjs'));
 app.use('/api/leads',    require('./routes/leads.cjs'));
 app.use('/api/tasks',    require('./routes/tasks.cjs'));
