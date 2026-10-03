@@ -651,6 +651,11 @@ async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
+    // A 401 from any route means the session expired or was revoked.
+    // The app listens for this and returns to the login screen.
+    if (res.status === 401 && !path.startsWith('/api/auth/')) {
+      window.dispatchEvent(new Event('jammie:unauthorized'));
+    }
     throw new Error(err.error || res.statusText);
   }
   return res.json();
@@ -922,11 +927,11 @@ function IOSInstallHint() {
       boxShadow:'0 8px 30px rgba(0,0,0,.35)', display:'flex', gap:12, alignItems:'center' }}>
       <img src="/icons/icon-192.png" alt="" width={44} height={44} style={{borderRadius:10, flexShrink:0}} />
       <div style={{flex:1, fontSize:13, lineHeight:1.45}}>
-        <div style={{fontWeight:700, marginBottom:2}}>Add Jammie to your Home Screen</div>
+        <div style={{fontWeight:700, marginBottom:2}}>Install Jammie — how to add it to your Home Screen</div>
         <div style={{color:'#cbd5e1'}}>
           {/CriOS/.test(navigator.userAgent)
             ? <>Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>⋯</span> then <strong>Add to Home Screen</strong> for full-screen access.</>
-            : <>Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>Share ⬆</span> then <strong>Add to Home Screen</strong> for full-screen access.</>}
+            : <>Tap <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>⋯</span> or <span style={{display:'inline-block',border:'1px solid #475569',borderRadius:4,padding:'0 5px',fontSize:12}}>Share ⬆</span> in Safari's toolbar, then <strong>Add to Home Screen</strong>.</>}
         </div>
       </div>
       <button onClick={dismiss} aria-label="Dismiss" style={{background:'none',border:'none',color:'#94a3b8',fontSize:20,cursor:'pointer',padding:4,lineHeight:1}}>×</button>
@@ -4184,7 +4189,7 @@ function LoanForm({ initial = {}, onSave, onClose }) {
   );
 }
 
-function LoansPage({ showToast }) {
+function LoansPage({ showToast, currentUser }) {
   const [loans, setLoans] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -4224,7 +4229,7 @@ function LoansPage({ showToast }) {
         subject_property: 'TBD',
         product:          'TBD',
         lender:           'No Lender',
-        mlo_id:           1,
+        mlo_id:           currentUser?.id || 1,
       });
       setLoans(p => [newLoan, ...p]);
       // Seed default ARIVE-style fees for this loan
@@ -4865,10 +4870,57 @@ Write a 3-paragraph executive summary with: key wins, areas needing attention, a
 // ─────────────────────────────────────────────────────────────────
 // AUTH CONSTANTS
 // ─────────────────────────────────────────────────────────────────
-const MLO_CREDENTIALS = { email: 'demo@example.com', password: 'Demo123!' };
 const BORROWER_CREDENTIALS = { email: 'demo@example.com', password: 'Demo123!' };
 const FIXED_MFA_CODE = '123456';
 const MLO_PROFILE = { name:'Ismael Castiblanco', initials:'IC', title:'Loan Officer', nmls:'#1616977', email:'icastiblanco@phomemortgage.com', phone:'(678) 505-7898' };
+
+// ─────────────────────────────────────────────────────────────────
+// CHANGE PASSWORD (MLO) — all seeded accounts start with the same
+// password, so this is the first thing each person should use.
+// ─────────────────────────────────────────────────────────────────
+function ChangePasswordDialog({ onClose, onDone }) {
+  const [cur, setCur] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setErr('');
+    if (next.length < 10) { setErr('New password must be at least 10 characters.'); return; }
+    if (next !== confirm) { setErr('New password and confirmation do not match.'); return; }
+    setBusy(true);
+    try {
+      await apiFetch('/api/auth/change-password', { method:'POST', body:{ currentPassword: cur, newPassword: next } });
+      onDone();
+    } catch (e) { setErr(e.message || 'Could not change password'); }
+    finally { setBusy(false); }
+  };
+  const field = (label, val, set, autoComplete) => (
+    <div className="form-group" style={{marginBottom:12}}>
+      <label className="form-label">{label}</label>
+      <input className="form-input" type="password" value={val} onChange={e=>set(e.target.value)} autoComplete={autoComplete}
+        onKeyDown={e=>e.key==='Enter'&&submit()} />
+    </div>
+  );
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:420}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header"><span>Change password</span><button className="btn-icon" onClick={onClose} aria-label="Close">✕</button></div>
+        <div className="modal-body">
+          {err && <div className="warning-box" style={{color:'#b91c1c',background:'#fef2f2',borderColor:'#fecaca'}}>{err}</div>}
+          {field('Current password', cur, setCur, 'current-password')}
+          {field('New password (10+ characters)', next, setNext, 'new-password')}
+          {field('Confirm new password', confirm, setConfirm, 'new-password')}
+          <div style={{fontSize:12,color:'var(--text-3)',marginTop:4}}>Changing it signs you out of every other device.</div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Change password'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────
 // MLO LOGIN GATE
@@ -4878,43 +4930,31 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [mfaCode, setMfaCode] = useState('');
   const [error, setError] = useState('');
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
-  const [resendSecs, setResendSecs] = useState(0);
   const timerRef = useRef(null);
   const [su, setSu] = useState({ accountType:'Broker', company:'', nmls:'', location:'', loCount:'', firstName:'', lastName:'', suEmail:'', phone:'', role:'', personalNmls:'', password:'', confirm:'', terms:false });
   const updSu = (k,v) => setSu(p=>({...p,[k]:v}));
 
-  const startResend = () => {
-    setResendSecs(30);
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setResendSecs(s => { if(s<=1){clearInterval(timerRef.current);return 0;} return s-1; });
-    }, 1000);
-  };
 
-  const handleLogin = () => {
+  const [busy, setBusy] = useState(false);
+  const handleLogin = async () => {
     setError('');
-    if (!email.trim() || !password) { setError('Please enter your email and password.'); return; }
-    if (email.toLowerCase() !== MLO_CREDENTIALS.email.toLowerCase() || password !== MLO_CREDENTIALS.password) {
-      setError('Invalid email or password. Try: demo@example.com / Demo123!'); return;
-    }
-    setScreen('mfa'); startResend();
+    if (!email.trim() || !password) { setError('Please enter your email or username, and your password.'); return; }
+    setBusy(true);
+    try {
+      // Real session: the server sets an httpOnly cookie; we keep only the
+      // public user object in state. No MFA step until SMS/email 2FA exists.
+      const user = await apiFetch('/api/auth/login', { method:'POST', body:{ login: email.trim(), password } });
+      onAuthenticated(user);
+    } catch (e) {
+      setError(e.message === 'API unavailable' ? 'The server is not reachable right now.' : (e.message || 'Sign-in failed'));
+    } finally { setBusy(false); }
   };
 
-  const handleMFA = () => {
-    setError('');
-    if (mfaCode !== FIXED_MFA_CODE) { setError('Incorrect code. Use: ' + FIXED_MFA_CODE); return; }
-    onAuthenticated({ name:'Ismael Castiblanco', initials:'IC', email });
-  };
-
-  const handleForgot = () => {
-    if (!forgotEmail.trim()) return;
-    setForgotSent(true);
-    setTimeout(() => { setForgotSent(false); setScreen('login'); }, 3000);
-  };
+  // No email provider yet (Phase 2). Until then resets go through an admin.
+  const handleForgot = () => { setForgotSent(true); };
 
   const inp = { width:'100%', padding:'16px 14px', border:'1.5px solid #e5e7eb', borderRadius:8, fontSize:15, color:'#1e2d45', outline:'none', fontFamily:"'DM Sans',sans-serif" };
 
@@ -4932,8 +4972,8 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
               <div className="auth-title">Log in to your account</div>
               {error && <div className="auth-alert show">⚠ {error}</div>}
               <div className="auth-field">
-                <label>Email ID *</label>
-                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={inp} placeholder=" " autoComplete="email"/>
+                <label>Email or username *</label>
+                <input type="text" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={inp} placeholder=" " autoComplete="username"/>
               </div>
               <div className="auth-field" style={{position:'relative'}}>
                 <label>Password *</label>
@@ -4941,8 +4981,7 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
                 <button className="auth-pw-toggle" onClick={()=>setShowPw(p=>!p)} type="button">{showPw?'👁':'🙈'}</button>
               </div>
               <a className="auth-link" onClick={()=>setScreen('forgot')} style={{display:'block',textAlign:'left',marginBottom:24,fontSize:14}}>Forgot Password?</a>
-              <button className="auth-btn" onClick={handleLogin}>LOGIN</button>
-              <a className="auth-link" onClick={()=>setScreen('forgot')} style={{display:'block',textAlign:'center',fontSize:14,marginBottom:20}}>Reset Your MFA</a>
+              <button className="auth-btn" onClick={handleLogin} disabled={busy} style={busy?{opacity:.7,cursor:'wait'}:undefined}>{busy ? 'SIGNING IN…' : 'LOGIN'}</button>
               <div style={{fontSize:12,color:'#9ca3af',textAlign:'center',lineHeight:1.7}}>
                 By logging in, you agree to the <a className="auth-link" href="#">Platform Subscription Agreement</a> and <a className="auth-link" href="#">Terms of Use</a>
               </div>
@@ -4955,40 +4994,13 @@ function MLOLogin({ onAuthenticated, onBorrowerPortal }) {
             </div>
           </>}
 
-          {screen === 'mfa' && <>
-            <div className="auth-card-hdr">Two-Factor Authentication</div>
-            <div className="auth-card-body">
-              <div className="auth-title" style={{fontSize:22}}>Verify Your Identity</div>
-              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:16}}>We've sent a text message to:</p>
-              <div className="auth-phone-box">XXXXXXXX7898</div>
-              {error && <div className="auth-alert show">⚠ {error}</div>}
-              <input className="auth-code-input" type="text" maxLength={6} value={mfaCode}
-                onChange={e=>setMfaCode(e.target.value.replace(/\D/g,''))}
-                onKeyDown={e=>e.key==='Enter'&&handleMFA()} placeholder="______" inputMode="numeric"/>
-              <div style={{fontSize:12,color:'#6b7280',textAlign:'center',marginBottom:12}}>Demo code: <strong>{FIXED_MFA_CODE}</strong></div>
-              <label className="auth-check-row"><input type="checkbox" defaultChecked/> Remember this device for 30 days</label>
-              <button className="auth-btn" onClick={handleMFA}>VERIFY</button>
-              <div style={{textAlign:'center',fontSize:14,color:'#4b5563',marginBottom:12}}>
-                Didn't receive a code?{' '}
-                {resendSecs > 0
-                  ? <span style={{color:'#9ca3af',fontWeight:600}}>({resendSecs}s)</span>
-                  : <a className="auth-link" onClick={()=>startResend()}>Resend</a>}
-              </div>
-              <button className="auth-btn-sec" onClick={()=>setScreen('login')}>← Back to Login</button>
-            </div>
-          </>}
-
           {screen === 'forgot' && <>
             <div className="auth-card-hdr">Reset Password</div>
             <div className="auth-card-body">
               <div className="auth-title" style={{fontSize:22}}>Reset Your Password</div>
-              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:24}}>Enter your email and we'll send a reset link.</p>
-              {forgotSent && <div className="auth-alert success show">✓ Reset link sent! Check your email.</div>}
-              <div className="auth-field">
-                <label>Email Address *</label>
-                <input type="email" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} style={inp} placeholder=" "/>
-              </div>
-              <button className="auth-btn" onClick={handleForgot}>SEND RESET LINK</button>
+              <p style={{fontSize:14,color:'#4b5563',textAlign:'center',marginBottom:24}}>Email-based resets arrive with the Borrower Portal release. For now, ask an administrator to reset your password.</p>
+              {forgotSent && <div className="auth-alert show">Contact your administrator — they can reset it from the server in under a minute.</div>}
+              <button className="auth-btn" onClick={handleForgot}>HOW DO I RESET IT?</button>
               <button className="auth-btn-sec" onClick={()=>setScreen('login')}>← Back to Login</button>
             </div>
           </>}
@@ -5361,6 +5373,25 @@ export default function App() {
 
   const showToast = useCallback(msg => setToast(msg), []);
 
+  // ── Session: restore on load, drop on 401, real sign-out ──
+  const [authChecked, setAuthChecked] = useState(portalMode !== 'mlo');
+  const [pwOpen, setPwOpen] = useState(false);
+  useEffect(() => {
+    if (portalMode !== 'mlo') return;
+    // The cookie is httpOnly, so the only way to know if we're signed in is
+    // to ask. Without this, every refresh would bounce to the login screen.
+    apiFetch('/api/auth/me').then(u => setMloUser(u)).catch(() => {}).finally(() => setAuthChecked(true));
+  }, []);
+  useEffect(() => {
+    const onUnauth = () => setMloUser(null);
+    window.addEventListener('jammie:unauthorized', onUnauth);
+    return () => window.removeEventListener('jammie:unauthorized', onUnauth);
+  }, []);
+  const handleSignOut = async () => {
+    try { await apiFetch('/api/auth/logout', { method:'POST' }); } catch {}
+    setMloUser(null);
+  };
+
   // ── BORROWER PORTAL MODE ──────────────────────────
   if (portalMode === 'borrower') {
     if (!borrowerUser) return <><GlobalStyles/><BorrowerLogin onAuthenticated={setBorrowerUser} onMLOPortal={()=>setPortalMode('mlo')}/><IOSInstallHint/></>;
@@ -5374,6 +5405,7 @@ export default function App() {
   }
 
   // ── MLO PORTAL MODE ───────────────────────────────
+  if (!authChecked) return <><GlobalStyles/><div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'var(--text-3)',fontSize:13}}>Loading…</div></>;
   if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser} onBorrowerPortal={()=>setPortalMode('borrower')}/><IOSInstallHint/></>;
 
   const navItems = [
@@ -5408,9 +5440,13 @@ export default function App() {
             onClick={()=>setAiOpen(p=>!p)}>
             ✨ Jammie AI
           </button>
-          <div style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={()=>setMloUser(null)} title="Sign Out">
-            <div className="nav-avatar">{mloUser.initials||'IC'}</div>
-            <span style={{fontSize:11,color:'#94a3b8'}}>Sign Out</span>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div className="nav-avatar" title={mloUser.email}>{mloUser.initials||'?'}</div>
+            <span style={{fontSize:11,color:'#cbd5e1',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{mloUser.name}</span>
+            <button onClick={()=>setPwOpen(true)} title="Change password"
+              style={{background:'none',border:'1px solid #334155',borderRadius:6,padding:'3px 8px',color:'#94a3b8',fontSize:11,cursor:'pointer'}}>Password</button>
+            <button onClick={handleSignOut} title="Sign Out"
+              style={{background:'none',border:'none',padding:'3px 4px',color:'#94a3b8',fontSize:11,cursor:'pointer'}}>Sign Out</button>
           </div>
         </div>
       </nav>
@@ -5418,7 +5454,7 @@ export default function App() {
       <div style={{marginRight: aiOpen ? 360 : 0, transition:'margin 0.25s cubic-bezier(0.4,0,0.2,1)'}}>
         {page === 'dashboard' && <DashboardPage loans={loans} leads={leads} tasks={tasks} />}
         {page === 'tasks'     && <TasksPage showToast={showToast} />}
-        {page === 'loans'     && <LoansPage showToast={showToast} />}
+        {page === 'loans'     && <LoansPage showToast={showToast} currentUser={mloUser} />}
         {page === 'leads'     && <LeadsPage showToast={showToast} />}
         {page === 'pricing'   && <PricingPage showToast={showToast} />}
         {page === 'contacts'  && <ContactsPage showToast={showToast} />}
@@ -5427,6 +5463,7 @@ export default function App() {
 
       <AISidebar open={aiOpen} onClose={()=>setAiOpen(false)} context={pageContext} />
       {toast && <Toast msg={toast} onDone={()=>setToast(null)} />}
+      {pwOpen && <ChangePasswordDialog onClose={()=>setPwOpen(false)} onDone={()=>{ setPwOpen(false); showToast('✓ Password changed'); }} />}
       <IOSInstallHint />
     </div>
   );
