@@ -1271,6 +1271,55 @@ function emptyBorrower1003(label='Borrower') {
   };
 }
 
+// Co-borrowers persist in form_1003_coborrowers (slots 2..4) with the same
+// column names as the primary's row. These two map that row <-> the borrower
+// object the Borrower Info tab edits. (The primary's mapping is inline in
+// Form1003; it predates these and is left untouched.)
+const COB_LABELS = ['Co-Borrower', 'Borrower 3', 'Borrower 4'];
+function coborrowerFromRow(row) {
+  const arr = v => { try { const a = typeof v === 'string' ? JSON.parse(v || '[]') : v; return Array.isArray(a) ? a : []; } catch { return []; } };
+  return {
+    ...emptyBorrower1003(COB_LABELS[row.slot - 2] || `Borrower ${row.slot}`),
+    _slot: row.slot, _persisted: true, _linked: !!row.borrower_user_id,
+    firstName: row.first_nm || '', middleName: row.middle_nm || '', lastName: row.last_nm || '', suffix: row.suffix || '',
+    ssn: row.ssn || '', dob: row.dob ? String(row.dob).split('T')[0] : '', citizenship: row.citizenship || 'us_citizen',
+    email: row.email || '', cellPhone: row.cell_phone || '',
+    maritalStatus: row.marital_status || '', numDeps: row.num_dependents ?? '', depAges: row.dependents_ages || '',
+    altNames: arr(row.alt_names),
+    isVeteran: row.is_veteran === 1, isDisabledVet: row.is_disabled_vet === 1, isExempt: row.is_exempt_funding_fee === 1, vaUseType: row.va_use_type || '',
+    presentAddr1: row.address_street || '', presentUnit: row.address_unit || '', presentCity: row.address_city || '', presentState: row.address_state || '',
+    presentZip: row.address_zip || '', presentCountry: row.address_country || 'United States',
+    presentYears: row.current_how_long_addr ?? '', presentOwn: row.housing || '',
+    prevAddresses: arr(row.prev_addresses_json),
+    mailingSame: row.mailing_same_as_present !== 0,
+    mailingAddr1: row.mailing_address_street || '', mailingUnit: row.mailing_address_unit_num || '', mailingCity: row.mailing_address_city || '',
+    mailingState: row.mailing_address_state || '', mailingZip: row.mailing_address_zip || '', mailingCountry: row.mailing_address_country || 'United States',
+  };
+}
+function rowFromCoborrower(b) {
+  return {
+    slot: b._slot,
+    first_nm: b.firstName || null, middle_nm: b.middleName || null, last_nm: b.lastName || null, suffix: b.suffix || null,
+    ssn: b.ssn || null, dob: b.dob || null, citizenship: b.citizenship || null,
+    email: b.email || null, cell_phone: b.cellPhone || null,
+    marital_status: b.maritalStatus || null, num_dependents: b.numDeps === '' ? null : b.numDeps, dependents_ages: b.depAges || null,
+    alt_names: Array.isArray(b.altNames) && b.altNames.length ? b.altNames : null,
+    is_veteran: b.isVeteran ? 1 : 0, is_disabled_vet: b.isDisabledVet ? 1 : 0, is_exempt_funding_fee: b.isExempt ? 1 : 0, va_use_type: b.vaUseType || null,
+    address_street: b.presentAddr1 || null, address_unit: b.presentUnit || null, address_city: b.presentCity || null, address_state: b.presentState || null,
+    address_zip: b.presentZip || null, address_country: b.presentCountry || null,
+    current_how_long_addr: b.presentYears === '' ? null : b.presentYears, housing: b.presentOwn || null,
+    prev_addresses_json: b.prevAddresses || [],
+    mailing_same_as_present: b.mailingSame ? 1 : 0,
+    mailing_address_street: b.mailingAddr1 || null, mailing_address_unit_num: b.mailingUnit || null, mailing_address_city: b.mailingCity || null,
+    mailing_address_state: b.mailingState || null, mailing_address_zip: b.mailingZip || null, mailing_address_country: b.mailingCountry || null,
+  };
+}
+async function saveCoborrowers(loanId, borrowers) {
+  const rows = borrowers.slice(1).filter(b => b._slot).map(rowFromCoborrower);
+  if (!rows.length) return;
+  await apiFetch(`/api/coborrowers/${loanId}`, { method: 'PUT', body: rows });
+}
+
 function FInput({ value, onChange, placeholder, type='text', style, ...rest }) {
   return <input type={type} value={value||''} onChange={onChange} placeholder={placeholder}
     className="form-input" style={style}
@@ -1550,26 +1599,45 @@ const ASSET_CATEGORIES = [
 ];
 
 function Section3Assets({ data, setData }) {
-  const getEntry = (type) => (data.assets||[]).find(a=>a.type===type);
-  const getVal   = (type) => getEntry(type)?.value || '';
+  // The borrower portal stores one entry per account (owner, institution,
+  // value). This grid shows category totals across every owner; a category
+  // with several accounts is read-only here so a typed total can't overwrite
+  // what the borrowers entered account by account.
+  const entriesOf = (type) => (data.assets||[]).filter(a=>a.type===type);
+  const getVal   = (type) => { const e = entriesOf(type); if (!e.length) return ''; if (e.length===1) return e[0].value || ''; return String(e.reduce((a,x)=>a+(parseFloat(String(x.value||'').replace(/[$,]/g,''))||0),0)); };
   const setVal = (type, val) => setData(p => {
     const list = p.assets || [];
-    const exists = list.find(a=>a.type===type);
-    const assets = exists
+    const exists = list.filter(a=>a.type===type);
+    if (exists.length > 1) return p;
+    const assets = exists.length
       ? list.map(a => a.type===type ? {...a, value:val} : a)
       : [...list, {id:'asset-'+type, owner:'Borrower', type, depositor:'', addr1:'', addr2:'', city:'', state:'', zip:'', acct:'', value:val}];
     return {...p, assets};
   });
-  const total = (data.assets||[]).reduce((a,x)=>a+(parseFloat(x.value)||0),0);
+  const total = (data.assets||[]).reduce((a,x)=>a+(parseFloat(String(x.value||'').replace(/[$,]/g,''))||0),0);
+  const detailed = (data.assets||[]).filter(a => a.depositor || a.owner==='Co-Borrower' || (a.owner && a.owner!=='Borrower'));
 
   return <>
     <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16}}>
       {ASSET_CATEGORIES.map(cat => (
-        <FField key={cat} label={`${cat} ($)`}>
-          <DollarInput value={getVal(cat)} onChange={e=>setVal(cat, e.target.value)}/>
+        <FField key={cat} label={`${cat} ($)${entriesOf(cat).length>1?` · ${entriesOf(cat).length} accounts`:''}`}>
+          {entriesOf(cat).length>1
+            ? <input className="form-input" readOnly value={money2(getVal(cat))} style={{background:'#f3f4f6',color:'var(--text-2)'}} title="Several accounts were entered in the borrower portal — edit them below"/>
+            : <DollarInput value={getVal(cat)} onChange={e=>setVal(cat, e.target.value)}/>}
         </FField>
       ))}
     </div>
+    {detailed.length>0 && <div style={{marginTop:14}}>
+      <div className="form-section-title" style={{marginTop:0}}>Accounts entered in the borrower portal</div>
+      {detailed.map((a,i)=>(
+        <div key={a.id||i} style={{display:'grid',gridTemplateColumns:'120px 1fr 1fr 120px auto',gap:10,alignItems:'center',padding:'6px 0',borderBottom:'1px solid var(--border-light)',fontSize:13}}>
+          <span style={{color:'var(--text-3)'}}>{a.owner||'Borrower'}{a.joint?' · joint':''}</span>
+          <span>{a.type}</span><span>{a.depositor||'—'}{a.acct?` ····${String(a.acct).slice(-4)}`:''}</span>
+          <span style={{fontWeight:600}}>${money2(a.value)}</span>
+          <button className="btn btn-danger btn-sm" onClick={()=>setData(p=>({...p, assets:(p.assets||[]).filter(x=>x!==a)}))}>✕</button>
+        </div>
+      ))}
+    </div>}
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'var(--accent-light)',borderRadius:'var(--radius)',marginTop:16,fontWeight:700,color:'var(--section-hdr)'}}>
       <span>Total Assets</span><span>${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
     </div>
@@ -2211,6 +2279,10 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    // Co-borrowers (slots 2..4) — what the MLO added here or what they entered in the portal.
+    apiFetch(`/api/coborrowers/${loanRow.id}`)
+      .then(rows => { if (Array.isArray(rows) && rows.length) setBorrowers(p => [p[0], ...rows.map(coborrowerFromRow)]); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => { loadLoanData(loan); }, [loan.id, loadLoanData]);
@@ -2420,6 +2492,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         } else {
           await db.form1003.insert(payload);
         }
+        await saveCoborrowers(loan.id, borrowers);
       } else {
         await db.form1003.insert(payload);
       }
@@ -2594,6 +2667,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             .catch(err => { console.error('[autoSave] form1003 save failed:', err); throw err; });
         }
         else { await db.form1003.insert(payload).catch(()=>{}); }
+        await saveCoborrowers(loan.id, borrowers);
       }
     } catch (err) {
       // Previously swallowed entirely, which is how failed tab-switch saves
@@ -3446,12 +3520,23 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 {i===0 && <span style={{fontSize:11,background:'var(--accent)',color:'#fff',padding:'1px 6px',borderRadius:8}}>Primary</span>}
               </button>
             ))}
-            <button className="btn btn-ghost btn-sm" style={{marginLeft:8,marginBottom:2}} onClick={()=>{
-              const labels=['Co-Borrower','Borrower 3','Borrower 4'];
-              setBorrowers(p=>[...p,emptyBorrower1003(labels[p.length-1]||`Borrower ${p.length+1}`)]);
+            {borrowers.length < 4 && <button className="btn btn-ghost btn-sm" style={{marginLeft:8,marginBottom:2}} onClick={()=>{
+              setBorrowers(p=>{
+                const used = new Set(p.map(x=>x._slot).filter(Boolean));
+                let slot = 2; while (used.has(slot)) slot++;
+                return [...p, { ...emptyBorrower1003(COB_LABELS[slot-2]||`Borrower ${slot}`), _slot: slot }];
+              });
               setActiveBIdx(borrowers.length);
-            }}>+ Add Co-Borrower</button>
-            {activeBIdx>0 && <button className="btn btn-danger btn-sm" style={{marginLeft:4,marginBottom:2}} onClick={()=>{setBorrowers(p=>p.filter((_,i)=>i!==activeBIdx));setActiveBIdx(0);}}>✕ Remove</button>}
+            }}>+ Add Co-Borrower</button>}
+            {activeBIdx>0 && <button className="btn btn-danger btn-sm" style={{marginLeft:4,marginBottom:2}} onClick={async()=>{
+              const b = borrowers[activeBIdx];
+              if (b._persisted && loan.id) {
+                if (!window.confirm(`Remove ${b.firstName||b.label} from this loan?`)) return;
+                try { await apiFetch(`/api/coborrowers/${loan.id}/${b._slot}`, { method:'DELETE' }); }
+                catch (e) { showToast('⚠ ' + e.message); return; }
+              }
+              setBorrowers(p=>p.filter((_,i)=>i!==activeBIdx)); setActiveBIdx(0);
+            }}>✕ Remove</button>}
           </div>
 
           {/* Borrower sub-tabs */}
@@ -4928,13 +5013,11 @@ const APP_STATUS_LABEL = { draft:'Not invited', invited:'Invited', in_progress:'
 const APP_STATUS_COLOR = { draft:'#94a3b8', invited:'#fbbf24', in_progress:'#60a5fa', submitted:'#34d399' };
 
 function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
-  const [st, setSt]       = useState(null);     // /api/loan-invites/:id payload
+  const [st, setSt]       = useState(null);     // /api/loan-invites/:id payload (seats)
   const [open, setOpen]   = useState(false);
   const [busy, setBusy]   = useState(false);
-  const [link, setLink]   = useState('');
-  const [first, setFirst] = useState('');
-  const [last, setLast]   = useState('');
-  const [email, setEmail] = useState('');
+  const [links, setLinks] = useState({});       // slot → inviteUrl just issued
+  const [draft, setDraft] = useState(null);     // { slot, role, first, last, email } for the seat being invited
 
   const load = useCallback(() => {
     if (!loan?.id) return;
@@ -4942,91 +5025,153 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
   }, [loan?.id]);
   useEffect(load, [load]);
 
-  // Prefill the dialog from whatever the 1003 currently holds.
-  const openDialog = () => {
-    const parts = String(borrowerName || '').trim().split(/\s+/);
-    setFirst(parts[0] || ''); setLast(parts.slice(1).join(' ') || '');
-    setEmail(borrowerEmail || st?.invite?.email || '');
-    setLink(''); setOpen(true);
-  };
+  const status = st?.applicationStatus || loan?.application_status || 'draft';
+  const seats = st?.seats || [];
+  const canInvite = status !== 'submitted';
 
-  const send = async (resend=false) => {
+  const startInvite = (seat) => {
+    const isPrimary = seat.slot === 1;
+    const parts = String(isPrimary ? (borrowerName || seat.name) : seat.name || '').trim().split(/\s+/);
+    setDraft({ slot: seat.slot, role: seat.role, first: parts[0] || '', last: parts.slice(1).join(' ') || '', email: (isPrimary ? borrowerEmail : '') || seat.email || seat.invite?.email || '' });
+  };
+  const send = async () => {
     setBusy(true);
     try {
-      const r = resend
-        ? await apiFetch(`/api/loan-invites/${loan.id}/resend`, { method:'POST' })
-        : await apiFetch(`/api/loan-invites/${loan.id}`, { method:'POST', body:{ first_nm:first.trim(), last_nm:last.trim(), email:email.trim() } });
-      setSt(r.status); setLink(r.inviteUrl || '');
-      showToast(r.dryRun ? '✓ Invitation created (email in dry-run mode — copy the link)' : r.emailed ? `✓ Invitation emailed to ${r.status?.invite?.email}` : `⚠ Saved, but the email failed: ${r.emailError || 'unknown'} — copy the link instead`);
+      const r = await apiFetch(`/api/loan-invites/${loan.id}`, { method:'POST', body:{ first_nm:draft.first.trim(), last_nm:draft.last.trim(), email:draft.email.trim(), role:draft.role, slot:draft.slot } });
+      setSt(r.status); setLinks(l => ({ ...l, [r.slot]: r.inviteUrl })); setDraft(null);
+      showToast(r.dryRun ? '✓ Invitation created (email in dry-run mode — copy the link)' : r.emailed ? `✓ Invitation emailed to ${draft.email.trim()}` : `⚠ Saved, but the email failed: ${r.emailError || 'unknown'} — copy the link instead`);
     } catch (e) { showToast('⚠ ' + (e.message || 'Could not send invitation')); }
     finally { setBusy(false); }
   };
-  const revoke = async () => {
+  const resend = async (seat) => {
     setBusy(true);
-    try { const r = await apiFetch(`/api/loan-invites/${loan.id}`, { method:'DELETE' }); setSt(r.status); setLink(''); showToast('Invitation revoked'); }
+    try {
+      const r = await apiFetch(`/api/loan-invites/${loan.id}/resend`, { method:'POST', body:{ role: seat.role, slot: seat.slot } });
+      setSt(r.status); setLinks(l => ({ ...l, [r.slot]: r.inviteUrl }));
+      showToast(r.dryRun ? '✓ New link created (email in dry-run mode — copy it)' : r.emailed ? `✓ Invitation re-sent to ${seat.invite?.email}` : '⚠ Saved, but the email failed — copy the link instead');
+    } catch (e) { showToast('⚠ ' + e.message); }
+    finally { setBusy(false); }
+  };
+  const revoke = async (seat) => {
+    setBusy(true);
+    try { const r = await apiFetch(`/api/loan-invites/${loan.id}?role=${seat.role}&slot=${seat.slot}`, { method:'DELETE' }); setSt(r.status); setLinks(l => ({ ...l, [seat.slot]: '' })); showToast('Invitation revoked'); }
     catch (e) { showToast('⚠ ' + e.message); }
     finally { setBusy(false); }
   };
-  const copy = async () => {
+  const copy = async (link) => {
     try { await navigator.clipboard.writeText(link); showToast('✓ Link copied'); }
     catch { window.prompt('Copy this link:', link); }
   };
 
-  const status = st?.applicationStatus || loan?.application_status || 'draft';
-  const inv = st?.invite;
-  const pending = inv?.state === 'pending';
-  const canInvite = status !== 'submitted';
+  const progressText = (acct) => {
+    if (!acct) return null;
+    if (acct.completedAt) return 'finished their part';
+    const done = Object.values(acct.progress?.steps || {}).filter(x => x === 'done').length;
+    return done ? `${done} of 9 sections done` : (acct.lastLoginAt ? 'signed in, not started' : 'account created');
+  };
+  const nextSlot = (() => { const used = new Set(seats.map(s => s.slot)); for (let s = 2; s <= 4; s++) if (!used.has(s)) return s; return null; })();
+  const pillText = (() => {
+    const base = APP_STATUS_LABEL[status] || status;
+    const withAcct = seats.filter(s => s.account);
+    if (status === 'in_progress' && withAcct.length) {
+      const done = withAcct.filter(s => s.account.completedAt).length;
+      return done === withAcct.length ? `${withAcct.length > 1 ? 'All borrowers' : 'Borrower'} finished` : `${base} · ${withAcct.length} borrower${withAcct.length > 1 ? 's' : ''}`;
+    }
+    return base;
+  })();
+  const stateColor = { pending:'#fbbf24', accepted:'#34d399', expired:'#f87171', revoked:'#94a3b8' };
 
   return (
     <>
-      <button onClick={openDialog} title="Borrower portal invitation"
-        style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.2)',borderRadius:6,padding:'4px 10px',color:'#fff',fontSize:12,cursor:'pointer'}}>
+      <button onClick={()=>{ setOpen(true); load(); }} title="Borrower portal"
+        style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.2)',borderRadius:6,padding:'4px 10px',color:'#fff',fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
         <span style={{width:8,height:8,borderRadius:'50%',background:APP_STATUS_COLOR[status]||'#94a3b8',flexShrink:0}}/>
-        {APP_STATUS_LABEL[status] || status}
+        {pillText}
       </button>
       {open && createPortal(
         /* Portal to <body>: this control sits inside the sticky 1003 topbar, whose
            stacking context would otherwise trap the overlay under the footer bar
            and make it inherit the topbar's white text. */
-        <div className="modal-overlay" onClick={()=>setOpen(false)}>
-          <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header"><span className="modal-title">Borrower portal</span><button className="btn-icon" onClick={()=>setOpen(false)} aria-label="Close">✕</button></div>
+        <div className="modal-overlay" onClick={()=>{ setOpen(false); setDraft(null); }}>
+          <div className="modal" style={{maxWidth:560}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><span className="modal-title">Borrower portal</span><button className="btn-icon" onClick={()=>{ setOpen(false); setDraft(null); }} aria-label="Close">✕</button></div>
             <div className="modal-body">
-              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,fontSize:13}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:16,fontSize:13}}>
                 <span style={{width:10,height:10,borderRadius:'50%',background:APP_STATUS_COLOR[status]}}/>
                 <strong>{APP_STATUS_LABEL[status]}</strong>
-                {inv && <span style={{color:'var(--text-3)'}}>· {inv.email} · {inv.state === 'pending' ? `expires ${new Date(inv.expiresAt).toLocaleDateString()}` : inv.state}</span>}
+                {status === 'submitted' && <span style={{color:'var(--text-3)'}}>· locked for borrowers</span>}
               </div>
-              {st?.borrowers?.length > 0 && (
-                <div style={{fontSize:12,color:'var(--text-2)',marginBottom:14}}>
-                  Signed up: {st.borrowers.map(b=>`${b.first_nm||''} ${b.last_nm||''} (${b.email})`).join(', ')}
-                </div>
-              )}
-              {canInvite && !pending && status !== 'in_progress' && (
-                <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                    <div className="form-group" style={{marginBottom:12}}><label className="form-label">First name *</label><input className="form-input" value={first} onChange={e=>setFirst(e.target.value)}/></div>
-                    <div className="form-group" style={{marginBottom:12}}><label className="form-label">Last name *</label><input className="form-input" value={last} onChange={e=>setLast(e.target.value)}/></div>
+
+              {seats.map(seat => {
+                const inv = seat.invite, acct = seat.account, link = links[seat.slot];
+                const pending = inv?.state === 'pending';
+                const editing = draft && draft.slot === seat.slot;
+                return (
+                  <div key={seat.slot} style={{border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em'}}>{seat.label}</div>
+                        <div style={{fontSize:14,fontWeight:600}}>{seat.name || <span style={{color:'var(--text-3)',fontWeight:400}}>Not yet named</span>}{seat.email && <span style={{fontWeight:400,color:'var(--text-3)'}}> · {seat.email}</span>}</div>
+                        <div style={{fontSize:12,color:'var(--text-2)',marginTop:2,display:'flex',alignItems:'center',gap:6}}>
+                          {inv && <span style={{width:7,height:7,borderRadius:'50%',background:stateColor[inv.state]||'#94a3b8'}}/>}
+                          {acct ? <>Account active · {progressText(acct)}</> : inv ? (inv.state === 'pending' ? `Invited · expires ${new Date(inv.expiresAt).toLocaleDateString()}` : inv.state === 'expired' ? 'Invitation expired' : inv.state === 'revoked' ? 'Invitation revoked' : 'Accepted') : 'Not invited'}
+                        </div>
+                      </div>
+                      {canInvite && !acct && !editing && (
+                        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                          {pending && <button className="btn btn-sm" onClick={()=>revoke(seat)} disabled={busy}>Revoke</button>}
+                          {pending && <button className="btn btn-sm btn-primary" onClick={()=>resend(seat)} disabled={busy}>Resend</button>}
+                          {!pending && <button className="btn btn-sm btn-primary" onClick={()=>startInvite(seat)} disabled={busy}>{inv ? 'Send new invitation' : 'Invite'}</button>}
+                        </div>
+                      )}
+                    </div>
+                    {editing && (
+                      <div style={{marginTop:12,paddingTop:12,borderTop:'1px dashed var(--border)'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                          <div className="form-group"><label className="form-label">First name *</label><input className="form-input" value={draft.first} onChange={e=>setDraft(d=>({...d,first:e.target.value}))} autoFocus/></div>
+                          <div className="form-group"><label className="form-label">Last name *</label><input className="form-input" value={draft.last} onChange={e=>setDraft(d=>({...d,last:e.target.value}))}/></div>
+                        </div>
+                        <div className="form-group" style={{marginTop:10}}><label className="form-label">Email *</label><input className="form-input" type="email" value={draft.email} onChange={e=>setDraft(d=>({...d,email:e.target.value}))}/></div>
+                        <div style={{display:'flex',justifyContent:'flex-end',gap:6,marginTop:10}}>
+                          <button className="btn btn-sm" onClick={()=>setDraft(null)} disabled={busy}>Cancel</button>
+                          <button className="btn btn-sm btn-primary" onClick={send} disabled={busy || !draft.first.trim() || !draft.last.trim() || !EMAIL_OK.test(draft.email.trim())}>{busy ? 'Sending…' : 'Send invitation'}</button>
+                        </div>
+                      </div>
+                    )}
+                    {link && (
+                      <div style={{marginTop:10}}>
+                        <label className="form-label">Invitation link</label>
+                        <div style={{display:'flex',gap:6}}>
+                          <input className="form-input" readOnly value={link} onFocus={e=>e.target.select()} style={{fontSize:11}}/>
+                          <button className="btn btn-sm" onClick={()=>copy(link)}>Copy</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="form-group" style={{marginBottom:12}}><label className="form-label">Borrower email *</label><input className="form-input" type="email" value={email} onChange={e=>setEmail(e.target.value)}/></div>
-                </>
+                );
+              })}
+
+              {canInvite && nextSlot && !(draft && !seats.some(s => s.slot === draft.slot)) && (
+                <button className="btn-add-dashed" style={{width:'100%',justifyContent:'center'}} onClick={()=>setDraft({ slot: nextSlot, role:'co_borrower', first:'', last:'', email:'' })}>+ Invite a co-borrower</button>
               )}
-              {link && (
-                <div style={{marginTop:6}}>
-                  <label className="form-label">Invitation link</label>
-                  <div style={{display:'flex',gap:6}}>
-                    <input className="form-input" readOnly value={link} onFocus={e=>e.target.select()} style={{fontSize:11}}/>
-                    <button className="btn btn-sm" onClick={copy}>Copy</button>
+              {draft && !seats.some(s => s.slot === draft.slot) && (
+                <div style={{border:'1px dashed var(--accent)',borderRadius:10,padding:'12px 14px'}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8}}>{COB_LABELS[draft.slot-2] || `Borrower ${draft.slot}`}</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                    <div className="form-group"><label className="form-label">First name *</label><input className="form-input" value={draft.first} onChange={e=>setDraft(d=>({...d,first:e.target.value}))} autoFocus/></div>
+                    <div className="form-group"><label className="form-label">Last name *</label><input className="form-input" value={draft.last} onChange={e=>setDraft(d=>({...d,last:e.target.value}))}/></div>
+                  </div>
+                  <div className="form-group" style={{marginTop:10}}><label className="form-label">Email *</label><input className="form-input" type="email" value={draft.email} onChange={e=>setDraft(d=>({...d,email:e.target.value}))}/></div>
+                  <div style={{fontSize:12,color:'var(--text-3)',marginTop:8}}>The co-borrower gets their own sign-in and fills in their own sections. The loan and property details stay with the primary borrower.</div>
+                  <div style={{display:'flex',justifyContent:'flex-end',gap:6,marginTop:10}}>
+                    <button className="btn btn-sm" onClick={()=>setDraft(null)} disabled={busy}>Cancel</button>
+                    <button className="btn btn-sm btn-primary" onClick={send} disabled={busy || !draft.first.trim() || !draft.last.trim() || !EMAIL_OK.test(draft.email.trim())}>{busy ? 'Sending…' : 'Send invitation'}</button>
                   </div>
                 </div>
               )}
             </div>
-            <div className="modal-footer" style={{flexWrap:'wrap'}}>
-              {pending && <button className="btn" onClick={revoke} disabled={busy}>Revoke</button>}
-              {inv && !pending && status === 'in_progress' && <span style={{fontSize:12,color:'var(--text-3)',marginRight:'auto'}}>The borrower has an account — no new invitation needed.</span>}
-              <button className="btn" onClick={()=>setOpen(false)} disabled={busy}>Close</button>
-              {canInvite && pending && <button className="btn btn-primary" onClick={()=>send(true)} disabled={busy}>{busy ? 'Sending…' : 'Resend'}</button>}
-              {canInvite && !pending && status !== 'in_progress' && <button className="btn btn-primary" onClick={()=>send(false)} disabled={busy || !first.trim() || !last.trim() || !EMAIL_OK.test(email.trim())}>{busy ? 'Sending…' : (inv ? 'Send new invitation' : 'Send invitation')}</button>}
+            <div className="modal-footer">
+              <button className="btn" onClick={()=>{ setOpen(false); setDraft(null); }} disabled={busy}>Close</button>
             </div>
           </div>
         </div>,

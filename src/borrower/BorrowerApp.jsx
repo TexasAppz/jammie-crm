@@ -7,14 +7,15 @@
 // Routes (read from window.location.pathname, no router dependency):
 //   /apply/invite/:token   accept an invitation → create account → /apply
 //   /apply/login           returning borrower sign-in
-//   /apply                 the application home (Phase 2: status + advisor;
-//                          Phase 3 fills in the steps)
+//   /apply                 home: my application(s), status, loan officer
+//   /apply/loan/:id        the guided application (Application.jsx)
 //
 // Phase 2 scope ends at "signed in and looking at my application". The
 // form itself is Phase 3.
 
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "../shared/api.js";
+import Application from "./Application.jsx";
 
 const PATH = () => window.location.pathname.replace(/\/+$/, '') || '/';
 const go = (path) => { window.history.pushState({}, '', path); window.dispatchEvent(new Event('popstate')); };
@@ -195,7 +196,7 @@ const STATUS_TEXT = {
   draft:       { label: 'Not started', color: '#6b7280', hint: '' },
 };
 
-function Home({ user, data, onSignOut, onChangePassword }) {
+function Home({ user, data, onSignOut, onChangePassword, onOpen }) {
   const loans = data?.loans || [];
   const mlo = loans[0]?.mlo || null;
   return (
@@ -224,10 +225,13 @@ function Home({ user, data, onSignOut, onChangePassword }) {
                   <div><span style={{color:'#9ca3af'}}>Application # </span>{l.loanNumber}</div>
                   {l.subjectProperty && <div><span style={{color:'#9ca3af'}}>Property </span>{l.subjectProperty}</div>}
                 </div>
-                <div style={{fontSize:13,color:'#4b5563',marginBottom:16}}>{s.hint}</div>
+                <div style={{fontSize:13,color:'#4b5563',marginBottom:16}}>
+                  {l.completedAt ? <>✓ You marked your part complete{l.role === 'co_borrower' ? '' : ''}. You can still make changes.</> : s.hint}
+                  {l.role === 'co_borrower' && <div style={{marginTop:4,color:'#6b7280'}}>You are the co-borrower on this application.</div>}
+                </div>
                 {l.applicationStatus !== 'submitted' ? (
-                  <button className="auth-btn" style={{marginBottom:0}} onClick={() => alert('The application steps arrive in the next release (Phase 3). Your account and invitation are set up.')}>
-                    {l.applicationStatus === 'in_progress' ? 'Continue application →' : 'Start application →'}
+                  <button className="auth-btn" style={{marginBottom:0}} onClick={() => onOpen(l.id)}>
+                    {l.lastSeenStep || l.completedAt ? 'Continue application →' : 'Start application →'}
                   </button>
                 ) : (
                   <div style={{fontSize:13,color:'#059669',fontWeight:600}}>✓ Submitted {l.submittedAt ? new Date(l.submittedAt).toLocaleDateString() : ''}</div>
@@ -310,14 +314,18 @@ export default function BorrowerApp() {
   const signedIn = (u, next) => { setUser(u); go(next && next.startsWith('/apply') ? next : '/apply'); };
 
   const inviteMatch = path.match(/^\/apply\/invite\/([A-Za-z0-9_-]+)$/);
-  const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 3000); };
+  const loanMatch   = path.match(/^\/apply\/loan\/(\d+)$/);
+  const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 3500); };
 
   // Redirects happen after render, never during it.
   useEffect(() => {
     if (inviteMatch || !checked) return;
     if (!user && path !== '/apply/login') go('/apply/login' + (path !== '/apply' ? `?next=${encodeURIComponent(path)}` : ''));
-    if (user && path !== '/apply') go('/apply');
-  }, [inviteMatch, checked, user, path]);
+    if (user && path !== '/apply' && !loanMatch) go('/apply');
+  }, [inviteMatch, loanMatch, checked, user, path]);
+
+  // Back on the home screen after an application session: refresh statuses.
+  const exitApplication = () => { go('/apply'); loadData(); };
 
   let body;
   if (inviteMatch) {
@@ -328,8 +336,16 @@ export default function BorrowerApp() {
     body = <div className="b-wrap"><Header /><BorrowerLogin onSignedIn={signedIn} /></div>;
   } else if (!data) {
     body = <div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'#6b7280',fontSize:13}}>Loading your application…</div>;
+  } else if (loanMatch) {
+    const loan = data.loans.find(l => l.id === Number(loanMatch[1]));
+    body = (
+      <div className="b-wrap">
+        <Header user={user} mlo={loan?.mlo || data.loans[0]?.mlo} onSignOut={signOut} />
+        <Application loanId={Number(loanMatch[1])} user={user} onExit={exitApplication} showToast={showToast} />
+      </div>
+    );
   } else {
-    body = <Home user={user} data={data} onSignOut={signOut} onChangePassword={() => setPwOpen(true)} />;
+    body = <Home user={user} data={data} onSignOut={signOut} onChangePassword={() => setPwOpen(true)} onOpen={id => go(`/apply/loan/${id}`)} />;
   }
 
   return (

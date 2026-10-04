@@ -69,6 +69,7 @@ router.get('/:token', async (req, res) => {
     const mloName = [inv.mlo_first, inv.mlo_last].filter(Boolean).join(' ') || 'Your loan officer';
     res.json({
       status,
+      role: inv.role === 'co_borrower' ? 'co_borrower' : 'primary',
       borrowerFirstName: inv.first_nm || '',
       maskedEmail: maskEmail(inv.email),
       existingAccount: acct.length > 0,
@@ -116,9 +117,22 @@ router.post('/:token/accept', async (req, res) => {
       borrower = { id: ins.insertId, email, first_nm: inv.first_nm, last_nm: inv.last_nm, preferred_lang: 'en', is_active: 1 };
     }
 
-    // Link to the loan: first borrower on a loan is primary, later ones co-borrowers.
-    const [[{ n }]] = await conn.query('SELECT COUNT(*) AS n FROM loan_borrowers WHERE loan_id=?', [inv.loan_id]);
-    await conn.query('INSERT IGNORE INTO loan_borrowers SET ?', { loan_id: inv.loan_id, borrower_user_id: borrower.id, role: n === 0 ? 'primary' : 'co_borrower' });
+    // Link to the seat the invite was issued for (role + slot fixed by the MLO).
+    const role = inv.role === 'co_borrower' ? 'co_borrower' : 'primary';
+    const slot = role === 'primary' ? 1 : (inv.slot || 2);
+    const [[seatTaken]] = await conn.query('SELECT borrower_user_id FROM loan_borrowers WHERE loan_id=? AND slot=? LIMIT 1', [inv.loan_id, slot]);
+    if (seatTaken && seatTaken.borrower_user_id !== borrower.id) {
+      await conn.rollback();
+      return res.status(409).json({ status: 'seat_taken', error: 'Someone has already accepted the invitation for this seat. Ask your loan officer for a new link.' });
+    }
+    await conn.query('INSERT IGNORE INTO loan_borrowers SET ?', { loan_id: inv.loan_id, borrower_user_id: borrower.id, role, slot });
+    if (role === 'co_borrower') {
+      // The co-borrower's own 1003 row (the MLO's invite already created it with name/email).
+      await conn.query(
+        `INSERT INTO form_1003_coborrowers (loan_id, slot, borrower_user_id, first_nm, last_nm, email) VALUES (?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE borrower_user_id=VALUES(borrower_user_id)`,
+        [inv.loan_id, slot, borrower.id, inv.first_nm || null, inv.last_nm || null, email]);
+    }
 
     // Consume the invite (guarded: two clicks on the same link race here).
     const [upd] = await conn.query(
@@ -132,7 +146,7 @@ router.post('/:token/accept', async (req, res) => {
       await auth.createSession(req, res, 'borrower', borrower.id);
     }
     db.query('UPDATE borrower_users SET last_login_at=NOW() WHERE id=?', [borrower.id]).catch(() => {});
-    res.json({ ok: true, loanId: inv.loan_id, user: auth.publicBorrower(borrower) });
+    res.json({ ok: true, loanId: inv.loan_id, role, slot, user: auth.publicBorrower(borrower) });
   } catch (e) {
     try { await conn.rollback(); } catch (_) {}
     console.error('[invites] accept error:', e.message);
