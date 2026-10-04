@@ -5062,6 +5062,17 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
     try { await navigator.clipboard.writeText(link); showToast('✓ Link copied'); }
     catch { window.prompt('Copy this link:', link); }
   };
+  const removeAccess = async (seat) => {
+    const who = seat.account?.name || seat.name || 'this borrower';
+    if (!window.confirm(`Remove ${who}'s access to this loan?\n\nThey will be signed out and their seat opens up again. What they already entered stays on the loan.`)) return;
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/loan-invites/${loan.id}/access/${seat.slot}`, { method:'DELETE' });
+      setSt(r.status); setLinks(l => ({ ...l, [seat.slot]: '' }));
+      showToast(r.accountDeleted ? `✓ Access removed — ${seat.account?.email || 'the email'} can be invited again` : '✓ Access removed from this loan');
+    } catch (e) { showToast('⚠ ' + e.message); }
+    finally { setBusy(false); }
+  };
 
   const progressText = (acct) => {
     if (!acct) return null;
@@ -5103,8 +5114,10 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
               </div>
 
               {seats.map(seat => {
-                const inv = seat.invite, acct = seat.account, link = links[seat.slot];
+                const inv = seat.invite, acct = seat.account;
                 const pending = inv?.state === 'pending';
+                // A pending invitation's link is always available (not only right after sending).
+                const link = links[seat.slot] || (pending ? inv.url : '');
                 const editing = draft && draft.slot === seat.slot;
                 return (
                   <div key={seat.slot} style={{border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
@@ -5124,6 +5137,9 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
                           {!pending && <button className="btn btn-sm btn-primary" onClick={()=>startInvite(seat)} disabled={busy}>{inv ? 'Send new invitation' : 'Invite'}</button>}
                         </div>
                       )}
+                      {canInvite && acct && (
+                        <button className="btn btn-sm" style={{color:'#b91c1c'}} onClick={()=>removeAccess(seat)} disabled={busy} title="Sign this person out and free the seat">Remove access</button>
+                      )}
                     </div>
                     {editing && (
                       <div style={{marginTop:12,paddingTop:12,borderTop:'1px dashed var(--border)'}}>
@@ -5140,12 +5156,15 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
                     )}
                     {link && (
                       <div style={{marginTop:10}}>
-                        <label className="form-label">Invitation link</label>
+                        <label className="form-label">Invitation link <span style={{color:'var(--text-3)',fontWeight:400}}>· valid until {inv?.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : '—'}</span></label>
                         <div style={{display:'flex',gap:6}}>
                           <input className="form-input" readOnly value={link} onFocus={e=>e.target.select()} style={{fontSize:11}}/>
                           <button className="btn btn-sm" onClick={()=>copy(link)}>Copy</button>
                         </div>
                       </div>
+                    )}
+                    {pending && !link && (
+                      <div style={{marginTop:8,fontSize:12,color:'var(--text-3)'}}>This invitation was sent before links were kept — click Resend to get a link you can copy.</div>
                     )}
                   </div>
                 );

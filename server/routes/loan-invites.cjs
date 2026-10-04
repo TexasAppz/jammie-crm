@@ -23,6 +23,12 @@
  *                                                     inviteUrl for "Copy link".
  *   POST   /api/loan-invites/:loanId/resend           { role? } new token, same seat
  *   DELETE /api/loan-invites/:loanId?role=co_borrower revoke that seat's open invite
+ *   DELETE /api/loan-invites/:loanId/access/:slot    remove a borrower's access (frees the seat and,
+ *                                                     if they are on no other loan, deletes the account)
+ *
+ * Links: every pending invite's URL is returned in the status payload (the
+ * token is stored sealed with TOKEN_SECRET — lib/tokens.cjs), so the MLO can
+ * copy it any time, not only at the moment it was created.
  *
  * Email never blocks: if the provider fails the invite is still saved and
  * the response says emailed:false so the MLO can copy the link or resend.
@@ -34,6 +40,7 @@ const router  = express.Router();
 const db      = require('../db.cjs');
 const email   = require('../lib/email.cjs');
 const F       = require('../lib/apply-fields.cjs');
+const tokens  = require('../lib/tokens.cjs');
 
 const INVITE_DAYS = 7;
 const MAX_SLOT = 4;
@@ -80,7 +87,7 @@ async function seats(loanId) {
     `SELECT lb.slot, lb.role, lb.completed_at, lb.progress_json, lb.last_seen_step, b.id AS user_id, b.email, b.first_nm, b.last_nm, b.last_login_at
        FROM loan_borrowers lb JOIN borrower_users b ON b.id = lb.borrower_user_id WHERE lb.loan_id=?`, [loanId]);
   const [invs] = await db.query(
-    `SELECT id, role, slot, email, first_nm, last_nm, expires_at, accepted_at, revoked_at, created_at, (expires_at < NOW()) AS expired
+    `SELECT id, role, slot, email, first_nm, last_nm, token_enc, expires_at, accepted_at, revoked_at, created_at, (expires_at < NOW()) AS expired
        FROM loan_invites WHERE loan_id=? ORDER BY id DESC`, [loanId]);
 
   const out = new Map();
@@ -95,7 +102,12 @@ async function seats(loanId) {
   for (const i of invs) {           // newest first → first one per slot wins
     const slot = i.slot || 1;
     const s = seat(slot);
-    if (!s.invite) s.invite = { email: i.email, state: inviteState(i), sentAt: i.created_at, expiresAt: i.expires_at, acceptedAt: i.accepted_at };
+    if (!s.invite) {
+      const state = inviteState(i);
+      const raw = state === 'pending' ? tokens.open(i.token_enc) : null;   // only a live link is ever shown
+      s.invite = { email: i.email, state, sentAt: i.created_at, expiresAt: i.expires_at, acceptedAt: i.accepted_at,
+        url: raw ? `${email.BASE_URL()}/apply/invite/${raw}` : null };
+    }
     if (!s.email) s.email = i.email;
     if (!s.name)  s.name  = [i.first_nm, i.last_nm].filter(Boolean).join(' ');
   }
@@ -145,9 +157,9 @@ async function issueInvite({ loan, mlo, role, slot, first_nm, last_nm, to }) {
   // Expiry is computed and compared in the database's clock only, so Node
   // and MariaDB never have to agree on a timezone.
   const [ins] = await db.query(
-    `INSERT INTO loan_invites (loan_id, mlo_id, role, slot, email, first_nm, last_nm, token_hash, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))`,
-    [loan.id, mlo ? mlo.id : null, role, slot, to, first_nm, last_nm, sha256(token), INVITE_DAYS]);
+    `INSERT INTO loan_invites (loan_id, mlo_id, role, slot, email, first_nm, last_nm, token_hash, token_enc, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))`,
+    [loan.id, mlo ? mlo.id : null, role, slot, to, first_nm, last_nm, sha256(token), tokens.seal(token), INVITE_DAYS]);
   const [[{ expires }]] = await db.query('SELECT expires_at AS expires FROM loan_invites WHERE id=?', [ins.insertId]);
   await db.query(`UPDATE loans SET application_status='invited' WHERE id=? AND application_status='draft'`, [loan.id]);
   const sent = await email.sendInvite({
@@ -245,6 +257,43 @@ router.delete('/:loanId', async (req, res) => {
     if (n === 0 && open === 0) await db.query(`UPDATE loans SET application_status='draft' WHERE id=? AND application_status='invited'`, [loanId]);
     res.json({ ok: true, revoked: r.affectedRows, status: await statusPayload(loanId) });
   } catch (e) { console.error('[loan-invites] revoke error:', e.message); res.status(500).json({ error: 'Could not revoke invitation' }); }
+});
+
+// DELETE /api/loan-invites/:loanId/access/:slot
+// Take a borrower's access to this loan away (wrong person, test account,
+// re-inviting with another email). Their seat opens up again. If the account
+// is on no other loan it is deleted too, so the email can be invited afresh.
+router.delete('/:loanId/access/:slot', async (req, res) => {
+  try {
+    const loanId = Number(req.params.loanId), slot = Number(req.params.slot);
+    if (!(slot >= 1 && slot <= MAX_SLOT)) return res.status(422).json({ error: 'Bad seat' });
+    const loan = await loadLoan(loanId);
+    if (!loan) return res.status(404).json({ error: 'Loan not found' });
+    if (loan.application_status === 'submitted') return res.status(409).json({ error: 'This application has been submitted; borrower access cannot be changed.' });
+    const [[seat]] = await db.query('SELECT borrower_user_id FROM loan_borrowers WHERE loan_id=? AND slot=? LIMIT 1', [loanId, slot]);
+    if (!seat) return res.status(404).json({ error: 'Nobody has access on that seat' });
+    const uid = seat.borrower_user_id;
+
+    await db.query('DELETE FROM loan_borrowers WHERE loan_id=? AND slot=?', [loanId, slot]);
+    await db.query('UPDATE loan_invites SET revoked_at=NOW() WHERE loan_id=? AND slot=? AND revoked_at IS NULL', [loanId, slot]);
+    if (slot > 1) await db.query('UPDATE form_1003_coborrowers SET borrower_user_id=NULL WHERE loan_id=? AND slot=?', [loanId, slot]);
+
+    const [[{ n }]] = await db.query('SELECT COUNT(*) AS n FROM loan_borrowers WHERE borrower_user_id=?', [uid]);
+    let accountDeleted = false;
+    if (n === 0) {
+      await db.query('DELETE FROM sessions WHERE user_type=? AND user_id=?', ['borrower', uid]);
+      await db.query('DELETE FROM borrower_users WHERE id=?', [uid]);   // email becomes available again
+      accountDeleted = true;
+    } else {
+      await db.query('DELETE FROM sessions WHERE user_type=? AND user_id=?', ['borrower', uid]);
+    }
+    const [[{ left }]] = await db.query('SELECT COUNT(*) AS `left` FROM loan_borrowers WHERE loan_id=?', [loanId]);
+    if (left === 0) {
+      const [[{ open }]] = await db.query('SELECT COUNT(*) AS open FROM loan_invites WHERE loan_id=? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()', [loanId]);
+      await db.query(`UPDATE loans SET application_status=? WHERE id=? AND application_status IN ('invited','in_progress')`, [open ? 'invited' : 'draft', loanId]);
+    }
+    res.json({ ok: true, accountDeleted, status: await statusPayload(loanId) });
+  } catch (e) { console.error('[loan-invites] remove access error:', e.message); res.status(500).json({ error: 'Could not remove access' }); }
 });
 
 module.exports = router;
