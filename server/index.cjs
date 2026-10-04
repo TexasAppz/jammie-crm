@@ -22,5 +22,6 @@ app.use('/api/credit', require('./routes/credit.cjs'));
 app.use('/api/invites',      require('./routes/invites.cjs'));
 app.use('/api/loan-invites', require('./routes/loan-invites.cjs'));
 app.use('/api/apply',        require('./routes/apply.cjs'));
+app.use('/api/coborrowers',  require('./routes/coborrowers.cjs'));
 
 app.listen(PORT, () => console.log(`✅ Jammie API running on port ${PORT}`));
