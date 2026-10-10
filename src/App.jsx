@@ -3575,6 +3575,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
               </div>
             </div>
             <Section2Employment data={formData} setData={setFormData}/>
+            <TwnPanel loan={loan} borrowers={borrowers} formData={formData} setFormData={setFormData} showToast={showToast}/>
           </div>
 
           <div style={{marginBottom:28}}>
@@ -4914,6 +4915,200 @@ Write a 3-paragraph executive summary with: key wins, areas needing attention, a
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// THE WORK NUMBER — employment & income verification (Equifax EVS).
+// One card per borrower seat inside Financial Info. Orders go through
+// /api/twn (MLO only); results are shown for comparison and can be
+// copied into an income entry with one click — never auto-applied.
+// ─────────────────────────────────────────────────────────────────
+const TWN_FILTERS = [['U','Mortgage Ultimate (active 90 days + inactive 24 months)'],['O','All employers within 12 months'],['R','All employers within 24 months'],['M36','All employers within 36 months'],['M60','All employers within 60 months'],['MSA','Mortgage Select All'],['A','Active only'],['I','Inactive only']];
+const fmtDate = d => d ? String(d).slice(0,10) : '—';
+const fmtUsd  = v => (v==null||v==='') ? '—' : '$' + money2(v);
+
+function TwnPanel({ loan, borrowers, formData, setFormData, showToast }) {
+  const [cfg, setCfg] = useState(null);
+  const [list, setList] = useState([]);
+  const [busySlot, setBusySlot] = useState(null);
+  const [openSlot, setOpenSlot] = useState(null);           // which seat's order form is open
+  const [opts, setOpts] = useState({ authorized:false, employerName:'', salaryKey:'', altSearch:false, filter:'', pdf:true });
+  const [showXml, setShowXml] = useState(null);             // verification id whose raw XML is shown
+  const [raw, setRaw] = useState(null);
+  const [expanded, setExpanded] = useState({});
+
+  const load = useCallback(() => {
+    if (!loan?.id) return;
+    apiFetch('/api/twn/config').then(setCfg).catch(()=>setCfg({ configured:false, missing:['API unreachable'] }));
+    apiFetch(`/api/twn/loan/${loan.id}`).then(setList).catch(()=>setList([]));
+  }, [loan?.id]);
+  useEffect(load, [load]);
+
+  const seats = borrowers.map((b,i) => ({ slot: i===0 ? 1 : (b._slot || i+1), label: i===0 ? 'Borrower' : (b.label || COB_LABELS[i-1]), name: [b.firstName,b.lastName].filter(Boolean).join(' ') || (i===0?'Borrower':'Co-borrower'), hasSsn: !!(b.ssn && String(b.ssn).replace(/\D/g,'').length===9), b }));
+  const latestFor = slot => list.find(v => v.borrower_slot===slot && v.request_type!=='template_list');
+  const okFor = slot => list.find(v => v.borrower_slot===slot && v.outcome==='ok');
+
+  const order = async (seat) => {
+    setBusySlot(seat.slot);
+    try {
+      const r = await apiFetch(`/api/twn/order/${loan.id}`, { method:'POST', body:{ slot: seat.slot, authorized: opts.authorized, authMethod:'mlo_attest', employerName: opts.employerName || undefined, salaryKey: opts.salaryKey || undefined, altSearch: opts.altSearch, filter: opts.filter || undefined, pdf: opts.pdf } });
+      showToast(`✓ The Work Number: ${r.verification.employer_count} employer record${r.verification.employer_count===1?'':'s'} for ${seat.name}`);
+      setOpenSlot(null); setOpts(o => ({ ...o, employerName:'', salaryKey:'' }));
+    } catch (e) {
+      const d = e.data || {};
+      const friendly = d.verification?.friendly || d.status?.friendly || d.error || e.message;
+      showToast('⚠ The Work Number: ' + friendly);
+      if (d.status?.code === '17221' || d.status?.code === '17012' || d.status?.code === '17331') setOpts(o => ({ ...o, _needEmployer:true }));
+      if (['17008','17009','17010','17005','17006','17007'].includes(d.status?.code)) setOpts(o => ({ ...o, _needKey:true }));
+    } finally { setBusySlot(null); load(); }
+  };
+
+  const useAsIncome = (seat, e) => {
+    const label = seat.slot===1 ? 'Borrower' : seat.label;
+    setFormData(p => {
+      const list = Array.isArray(p.incomes) ? [...p.incomes] : [];
+      const idx = list.findIndex(x => x && (x.borrower||'Borrower')===label && String(x.employer||'').trim().toLowerCase()===String(e.employer_name||'').trim().toLowerCase());
+      const patch = { borrower: label, type:'Employment Income', employer: e.employer_name || '', position: e.position_title || '', startDate: fmtDate(e.dt_hire)==='—' ? '' : fmtDate(e.dt_hire), base: e.monthly_base_est != null ? String(e.monthly_base_est) : '', currentEmp: e.status_type !== 'I', _twnVerified: true, _twnEmploymentId: e.id };
+      if (idx >= 0) list[idx] = { ...list[idx], ...patch };
+      else list.push({ id: Date.now(), overtime:'', bonuses:'', commission:'', tips:'', seasonal:'', otherW2:'', primary: list.length===0, selfEmp:false, familyRelated:false, addr1:'', city:'', state:'', zip:'', country:'United States', phone:'', verPhone:'', verEmail:'', endDate:'', ...patch });
+      return { ...p, incomes: list };
+    });
+    showToast(`✓ ${e.employer_name} added to ${seat.name}'s income — review and Save`);
+  };
+
+  const attach = async (v) => { try { const r = await apiFetch(`/api/twn/${v.id}/attach-pdf`, { method:'POST' }); showToast(r.already ? 'Already in Documents' : '✓ PDF added to Documents'); load(); } catch (e) { showToast('⚠ ' + e.message); } };
+  const viewXml = async (v) => { if (showXml===v.id) { setShowXml(null); return; } try { setRaw(await apiFetch(`/api/twn/${v.id}/raw`)); setShowXml(v.id); } catch (e) { showToast('⚠ ' + e.message); } };
+
+  const chip = (text, color) => <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:10,background:color+'22',color,whiteSpace:'nowrap'}}>{text}</span>;
+
+  return (
+    <div style={{marginTop:24,border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'10px 16px',background:'#0f1623',color:'#fff'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontWeight:700,fontSize:13,letterSpacing:'.02em'}}>The Work Number<span style={{fontSize:9,verticalAlign:'super'}}>®</span></span>
+          <span style={{fontSize:11,color:'#94a3b8'}}>Employment & income verification · Equifax</span>
+        </div>
+        {cfg && (cfg.configured
+          ? chip(cfg.env==='prod' ? 'PRODUCTION' : 'UAT / TEST', cfg.env==='prod' ? '#34d399' : '#fbbf24')
+          : chip('Not configured', '#f87171'))}
+      </div>
+      {cfg && !cfg.configured && <div style={{padding:'10px 16px',fontSize:12,color:'#b45309',background:'#fffbeb'}}>Missing on the server: {cfg.missing.join(', ')}. Add the TWN_* settings to .env and restart the API.</div>}
+
+      {seats.map(seat => {
+        const latest = latestFor(seat.slot), good = okFor(seat.slot);
+        const isOpen = openSlot === seat.slot;
+        const history = list.filter(v => v.borrower_slot===seat.slot);
+        return (
+          <div key={seat.slot} style={{padding:'14px 16px',borderTop:'1px solid var(--border)'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:'var(--text-3)',textTransform:'uppercase',letterSpacing:'.05em'}}>{seat.label}</div>
+                <div style={{fontSize:14,fontWeight:600}}>{seat.name}{!seat.hasSsn && <span style={{fontSize:11,color:'#b45309',fontWeight:500,marginLeft:8}}>no SSN on file — search by name/address</span>}</div>
+                {latest && <div style={{fontSize:12,color:'var(--text-2)',marginTop:2}}>
+                  Last request {new Date(latest.created_at).toLocaleString()} · {latest.outcome==='ok' ? chip(`${latest.employer_count} employer record${latest.employer_count===1?'':'s'}`, '#059669') : chip(latest.status_code ? `Code ${latest.status_code}` : latest.outcome.replace('_',' '), '#b91c1c')}
+                  {latest.outcome!=='ok' && <span style={{marginLeft:8}}>{latest.friendly || latest.error_text}</span>}
+                </div>}
+              </div>
+              <div style={{display:'flex',gap:6}}>
+                {good?.has_pdf && <a className="btn btn-sm" href={`/api/twn/${good.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
+                <button className="btn btn-sm btn-primary" disabled={!cfg?.configured || busySlot===seat.slot} onClick={()=>{ setOpenSlot(isOpen ? null : seat.slot); setOpts(o=>({ ...o, authorized:false, altSearch: !seat.hasSsn, _needEmployer:false, _needKey:false })); }}>
+                  {busySlot===seat.slot ? 'Verifying…' : good ? 'Verify again' : 'Verify employment & income'}
+                </button>
+              </div>
+            </div>
+
+            {isOpen && (
+              <div style={{marginTop:12,padding:14,background:'var(--cream)',border:'1px dashed var(--border)',borderRadius:'var(--radius)'}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                  <div className="form-group"><label className="form-label">Product / filter</label>
+                    <select className="form-select" value={opts.filter} onChange={e=>setOpts(o=>({...o,filter:e.target.value}))}><option value="">Default ({cfg?.filter})</option>{TWN_FILTERS.map(([v,l])=><option key={v} value={v}>{v} — {l}</option>)}</select></div>
+                  <div className="form-group"><label className="form-label">Employer name {(opts._needEmployer) && <span style={{color:'#b45309'}}>— required for this borrower</span>}</label>
+                    <input className="form-input" value={opts.employerName} onChange={e=>setOpts(o=>({...o,employerName:e.target.value}))} placeholder="Optional; needed when Equifax asks (multiple identities, RI residents)"/></div>
+                  <div className="form-group"><label className="form-label">Salary key {(opts._needKey) && <span style={{color:'#b45309'}}>— this employer requires one</span>}</label>
+                    <input className="form-input" value={opts.salaryKey} onChange={e=>setOpts(o=>({...o,salaryKey:e.target.value.replace(/\D/g,'').slice(0,6)}))} placeholder="6 digits, from the borrower"/></div>
+                  <div style={{display:'flex',flexDirection:'column',gap:8,justifyContent:'flex-end'}}>
+                    <label className="check-row"><input type="checkbox" checked={opts.altSearch} onChange={e=>setOpts(o=>({...o,altSearch:e.target.checked}))}/> Search by name, address and date of birth instead of SSN</label>
+                    <label className="check-row"><input type="checkbox" checked={opts.pdf} onChange={e=>setOpts(o=>({...o,pdf:e.target.checked}))}/> Request the PDF report</label>
+                  </div>
+                </div>
+                <label className="check-row" style={{marginTop:12,fontWeight:600}}><input type="checkbox" checked={opts.authorized} onChange={e=>setOpts(o=>({...o,authorized:e.target.checked}))}/> {seat.name} has authorized Peoples Home Mortgage to verify their employment and income for this credit application (permissible purpose: application for credit).</label>
+                <div style={{display:'flex',justifyContent:'flex-end',gap:6,marginTop:10}}>
+                  <button className="btn btn-sm" onClick={()=>setOpenSlot(null)}>Cancel</button>
+                  <button className="btn btn-sm btn-primary" disabled={!opts.authorized || busySlot===seat.slot} onClick={()=>order(seat)}>{busySlot===seat.slot ? 'Contacting Equifax…' : 'Order verification'}</button>
+                </div>
+              </div>
+            )}
+
+            {good && good.employments.length > 0 && (
+              <div style={{marginTop:12}}>
+                {good.employments.map(e => (
+                  <div key={e.id} style={{border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'10px 12px',marginBottom:8,background:'#fff'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                        <strong>{e.employer_name || `Employer ${e.employer_code}`}</strong>
+                        {chip(e.status_text || e.status_code || '—', e.status_type==='A' ? '#059669' : '#6b7280')}
+                        {e.fcra_blocked ? chip('FCRA notice', '#b91c1c') : null}
+                        {e.position_title && <span style={{fontSize:12,color:'var(--text-2)'}}>{e.position_title}</span>}
+                      </div>
+                      <div style={{display:'flex',gap:6}}>
+                        <button className="btn btn-sm" onClick={()=>setExpanded(x=>({...x,[e.id]:!x[e.id]}))}>{expanded[e.id] ? 'Less' : 'Details'}</button>
+                        <button className="btn btn-sm btn-primary" onClick={()=>useAsIncome(seat, e)} title="Copy employer, title, hire date and monthly base into this borrower's income">Use as income</button>
+                      </div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'6px 14px',marginTop:8,fontSize:12}}>
+                      <div><span style={{color:'var(--text-3)'}}>Hired </span>{fmtDate(e.dt_hire)}{e.dt_end ? <> · <span style={{color:'var(--text-3)'}}>ended </span>{fmtDate(e.dt_end)}</> : null}</div>
+                      <div><span style={{color:'var(--text-3)'}}>Rate </span>{fmtUsd(e.rate_of_pay)} {e.pay_frequency ? `/ ${e.pay_frequency}` : ''}{e.pay_period ? ` · paid ${e.pay_period}` : ''}</div>
+                      <div><span style={{color:'var(--text-3)'}}>Monthly base (est.) </span><strong>{fmtUsd(e.monthly_base_est)}</strong></div>
+                      <div><span style={{color:'var(--text-3)'}}>YTD </span>{fmtUsd(e.ytd_total)}</div>
+                      <div><span style={{color:'var(--text-3)'}}>Prior year </span>{fmtUsd(e.prior_year_total)}</div>
+                      <div><span style={{color:'var(--text-3)'}}>Projected annual </span>{fmtUsd(e.projected_income)}</div>
+                    </div>
+                    {expanded[e.id] && (
+                      <div style={{marginTop:10,fontSize:12,color:'var(--text-2)'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:'4px 14px'}}>
+                          <div>Employer code: {e.employer_code || '—'}</div><div>Location: {[e.employer_city, e.employer_state].filter(Boolean).join(', ') || '—'}</div>
+                          <div>As of: {fmtDate(e.dt_info)}</div><div>Original hire: {fmtDate(e.dt_original_hire)}</div>
+                          <div>Service: {e.length_of_service_months != null ? `${e.length_of_service_months} months` : '—'}</div><div>Last paid: {fmtDate(e.dt_most_recent_pay)}</div>
+                          <div>Avg hours / period: {e.avg_hours_per_period ?? '—'}</div><div>Reference (SRVRTID): {e.srvrtid || '—'}</div>
+                          <div>Completeness: {e.completeness || '—'}</div>
+                        </div>
+                        {e.annual?.length > 0 && <table style={{marginTop:8,fontSize:12,borderCollapse:'collapse'}}><thead><tr>{['Year','Base','Overtime','Commission','Bonus','Other','Total'].map(h=><th key={h} style={{textAlign:'right',padding:'2px 8px',color:'var(--text-3)',fontWeight:600}}>{h}</th>)}</tr></thead>
+                          <tbody>{e.annual.map(a=><tr key={a.year}>{[a.year,a.base,a.overtime,a.commission,a.bonus,a.other,a.total].map((v,i)=><td key={i} style={{textAlign:'right',padding:'2px 8px'}}>{i===0?v:fmtUsd(v)}</td>)}</tr>)}</tbody></table>}
+                        {e.disclaimers?.length > 0 && <div style={{marginTop:8,fontStyle:'italic'}}>{e.disclaimers.map((d,i)=><div key={i}>{d.text}</div>)}</div>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div style={{display:'flex',gap:6,alignItems:'center',fontSize:12,color:'var(--text-3)',flexWrap:'wrap'}}>
+                  <span>Verified {new Date(good.created_at).toLocaleString()} by {good.requested_by || '—'}{good.product_name ? ` · ${good.product_name}` : ''}{good.price != null ? ` · $${money2(good.price)}` : ''} · {good.env?.toUpperCase()}</span>
+                  {good.has_pdf && !good.loan_document_id && <button className="btn btn-sm" onClick={()=>attach(good)}>Add PDF to Documents</button>}
+                  {good.has_pdf && good.loan_document_id && <span>· PDF in Documents</span>}
+                  <button className="btn btn-sm" onClick={()=>viewXml(good)}>{showXml===good.id ? 'Hide XML' : 'Request / response XML'}</button>
+                </div>
+              </div>
+            )}
+            {showXml && raw && history.some(v=>v.id===showXml) && (
+              <div style={{marginTop:8,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <textarea readOnly value={raw.request_xml || ''} style={{fontFamily:'monospace',fontSize:10,height:200,width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:6}}/>
+                <textarea readOnly value={raw.response_xml || ''} style={{fontFamily:'monospace',fontSize:10,height:200,width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:6}}/>
+              </div>
+            )}
+            {history.length > 1 && (
+              <details style={{marginTop:8,fontSize:12,color:'var(--text-2)'}}><summary style={{cursor:'pointer'}}>History ({history.length})</summary>
+                {history.map(v => <div key={v.id} style={{padding:'3px 0',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                  <span>{new Date(v.created_at).toLocaleString()}</span><span>{v.request_type}</span>
+                  {v.outcome==='ok' ? chip(`${v.employer_count} record${v.employer_count===1?'':'s'}`, '#059669') : chip(v.status_code ? `Code ${v.status_code}` : v.outcome, '#b91c1c')}
+                  <span>{v.friendly || v.error_text || ''}</span>
+                  {v.has_pdf && <a href={`/api/twn/${v.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
+                  <button className="btn btn-sm" onClick={()=>viewXml(v)}>XML</button>
+                </div>)}
+              </details>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
