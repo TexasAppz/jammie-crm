@@ -102,8 +102,13 @@ function getCredentials(mode = 'hard') {
  */
 function validateBorrower(b, label) {
   const problems = [];
+  // EMS answers "Invalid or Missing Borrower First Name" for anything but letters, spaces, hyphens,
+  // apostrophes and periods (an underscore or a digit in a test name wastes a pull) — check here first.
+  const NAME = /^\p{L}[\p{L} .'\-]*$/u;
   if (!b.firstName || !/[A-Za-z]/.test(b.firstName)) problems.push(`${label}: first name is required`);
+  else if (!NAME.test(String(b.firstName).trim())) problems.push(`${label}: first name may contain only letters, spaces, hyphens, apostrophes and periods`);
   if (!b.lastName  || !/[A-Za-z]/.test(b.lastName))  problems.push(`${label}: last name is required`);
+  else if (!NAME.test(String(b.lastName).trim())) problems.push(`${label}: last name may contain only letters, spaces, hyphens, apostrophes and periods`);
   const ssn = digitsOnly(b.ssn);
   if (ssn.length !== 9) problems.push(`${label}: SSN must be 9 digits`);
   const r = b.residence || {};
@@ -264,12 +269,18 @@ function parseResponse(xmlText) {
   const isError = creditResponse.CreditReportType === 'Error'
                || status._Condition === 'Error'
                || errorTexts.length > 0;
+  // EMS's first _Text is usually the generic "Transaction type: REQUEST ERROR";
+  // the reason is in the following lines. Say the reason, keep every line in `errors`.
+  const reasonTexts = errorTexts.filter(t => !/^transaction type\s*:/i.test(t));
+  const reason = reasonTexts.join(' · ') || errorTexts.join(' · ') || null;
+  // Some errors carry no <STATUS>; pick the code out of the text when it is there ("E707", "E037 ...").
+  const codeFromText = (errorTexts.join(' ').match(/\b([ES]\d{3})\b/) || [])[1] || null;
   const result = {
     ok: !isError && !!creditResponse.CreditReportIdentifier,
     status: {
-      code: status._Code || (isError ? null : 'OK'),
+      code: status._Code || (isError ? codeFromText : 'OK'),
       condition: status._Condition || (isError ? 'Error' : 'Success'),
-      description: status._Description || (isError ? errorTexts[0] || null : 'Report received'),
+      description: status._Description || (isError ? reason : 'Report received'),
     },
     errors: errorTexts,
     // The EMS order number — needed for Retrieve/Reissue/Upgrade later.
