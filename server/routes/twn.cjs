@@ -109,7 +109,8 @@ async function storeVerification({ loanId, slot, opts, result, outcome, errorTex
       monthly_base_est: e.monthlyBaseEstimate, projected_income: e.projectedIncome,
       ytd_total: e.ytdTotal, prior_year_total: e.priorYearTotal, prior_year2_total: e.priorYear2Total,
       annual_json: JSON.stringify(e.annual), completeness: e.completeness, fcra_blocked: e.fcraBlocked ? 1 : 0,
-      disclaimers_json: JSON.stringify(e.disclaimers),
+      // FCRA notices ride along with the disclaimers so the UI can show them without another column
+      disclaimers_json: JSON.stringify([...e.disclaimers, ...e.fcra.map(f => ({ type: 'FCRA', text: [f.type, f.message].filter(Boolean).join(': ') || 'FCRA action on this record' }))]),
     });
   }
   return id;

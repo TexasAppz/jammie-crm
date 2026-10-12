@@ -317,6 +317,7 @@ const RETURN_CODES = {
   '17016': 'The loan number (TRNUID) was reused outside the allowed window.',
   '17065': 'This employer provides employment data only, not income.',
   '17221': 'More than one person may match this SSN — add the employer name and retry.',
+  '17234': 'This person has placed a freeze on their employment and income data at The Work Number. They must lift the freeze (theworknumber.com) before a verification can be returned.',
   '17331': 'This state requires the borrower\'s name on the request.',
   '17332': 'The name on the request does not match the employment record.',
 };

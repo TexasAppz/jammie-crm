@@ -1749,7 +1749,12 @@ function Section6LoanInfo({ data, setData }) {
         <FField label="Total Loan Amount (auto)"><div style={{padding:'7px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)',fontWeight:700,color:'var(--accent)'}}>${totalLoan.toLocaleString()}</div></FField>
         <FField label="LTV % (auto)"><div style={{padding:'7px 10px',background:'var(--cream)',border:'1px solid var(--border)',borderRadius:'var(--radius)'}}>{ltv}</div></FField>
       </div>
-      <FField label="Qualifying Credit Score" style={{maxWidth:200}}><FInput type="number" value={data.creditScore} onChange={e=>upd('creditScore',e.target.value)} placeholder="580–850"/></FField>
+      <FField label="Qualifying Credit Score" style={{maxWidth:260}}>
+        <FInput type="number" value={data.creditScore} onChange={e=>setData(p=>({...p,creditScore:e.target.value,creditScoreSource:'',creditScoreDate:'',creditReportId:null}))} placeholder="580–850"/>
+        {data.creditScoreSource
+          ? <div style={{fontSize:11,color:'var(--text-3)',marginTop:4}}>From {data.creditScoreSource}{data.creditScoreDate ? ` · ${data.creditScoreDate}` : ''}</div>
+          : data.creditScore ? <div style={{fontSize:11,color:'var(--text-3)',marginTop:4}}>Entered by hand — order a credit report in Financial Info to verify</div> : null}
+      </FField>
     </>}
     {subTab===1 && <>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:14,marginBottom:14}}>
@@ -2112,6 +2117,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       lienPosition:         loanRow.lien_position        || 'First Lien',
       amortTerm:            loanRow.amort_term           ? String(loanRow.amort_term) : '360',
       creditScore:          loanRow.credit_score         ? String(loanRow.credit_score) : '',
+      creditScoreSource:    loanRow.credit_score_source  || '',
+      creditScoreDate:      loanRow.credit_score_date    ? (/^\d{4}-\d{2}-\d{2}/.test(String(loanRow.credit_score_date)) ? String(loanRow.credit_score_date).slice(0,10) : (isNaN(new Date(loanRow.credit_score_date)) ? '' : new Date(loanRow.credit_score_date).toISOString().slice(0,10))) : '',
+      creditReportId:       loanRow.credit_report_id     || null,
       earnest_money_deposit:     loanRow.earnest_money_deposit     ? String(loanRow.earnest_money_deposit)     : '',
       seller_credits:            loanRow.seller_credits            ? String(loanRow.seller_credits)            : '',
       funds_for_borrower:        loanRow.funds_for_borrower        ? String(loanRow.funds_for_borrower)        : '',
@@ -2350,6 +2358,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           lien_position:    formData.lienPosition    || 'First Lien',
           amort_term:       parseInt(formData.amortTerm) || 360,
           credit_score:     parseInt(formData.creditScore) || null,
+          credit_score_source: formData.creditScoreSource || null,
+          credit_score_date:   formData.creditScoreDate   || null,
+          credit_report_id:    formData.creditReportId    || null,
           // Proposed Monthly Payment
           pmt_hoi:              parseFloat(formData.pmt_hoi)              || null,
           pmt_property_taxes:   parseFloat(formData.pmt_property_taxes)   || null,
@@ -2545,6 +2556,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           lien_position:    formData.lienPosition    || 'First Lien',
           amort_term:       parseInt(formData.amortTerm) || 360,
           credit_score:     parseInt(formData.creditScore) || null,
+          credit_score_source: formData.creditScoreSource || null,
+          credit_score_date:   formData.creditScoreDate   || null,
+          credit_report_id:    formData.creditReportId    || null,
           pmt_hoi:              parseFloat(formData.pmt_hoi)              || null,
           pmt_property_taxes:   parseFloat(formData.pmt_property_taxes)   || null,
           pmt_mi:               parseFloat(formData.pmt_mi)               || null,
@@ -2971,7 +2985,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
               </div>
               <div style={{textAlign:'left'}}>
                 <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>Score</div>
-                <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>{formData.creditScore||'--'}</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#fff'}} title={formData.creditScoreSource ? `From ${formData.creditScoreSource}${formData.creditScoreDate ? ' · ' + formData.creditScoreDate : ''}` : (formData.creditScore ? 'Entered by hand — order a credit report in Financial Info to verify' : '')}>
+                  {formData.creditScore||'--'}{formData.creditScore && formData.creditScoreSource ? <span style={{fontSize:9,fontWeight:600,marginLeft:4,padding:'1px 5px',borderRadius:8,background:'rgba(52,211,153,.25)',color:'#a7f3d0',verticalAlign:'middle'}}>EMS</span> : null}
+                </div>
               </div>
               <div style={{textAlign:'left'}}>
                 <div style={{fontSize:10,color:'rgba(255,255,255,.55)',textTransform:'uppercase',letterSpacing:'.05em'}}>Rate</div>
@@ -3588,6 +3604,10 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           </div>
 
           <div style={{marginBottom:28}}>
+            <CreditPanel loan={loan} borrowers={borrowers} formData={formData} setFormData={setFormData} showToast={showToast}/>
+          </div>
+
+          <div style={{marginBottom:28}}>
             <div style={{fontSize:16,fontWeight:700,color:'var(--text)',marginBottom:4}}>
               Monthly Liability: <span style={{color:'#b91c1c'}}>
                 ${(formData.liabilities||[]).filter(l=>l.dti==='Include' && !l.paid_off).reduce((a,x)=>a+(parseFloat(x.payment)||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}
@@ -4075,12 +4095,14 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       <td>
                         {doc.doc_source === 'mismo_export' ? <span className="badge badge-default">MISMO export</span>
                           : doc.doc_source === 'mismo_import' ? <span className="badge badge-default">MISMO import</span>
+                          : doc.doc_source === 'twn' ? <span className="badge badge-default">The Work Number</span>
+                          : doc.doc_source === 'credit' ? <span className="badge badge-default">Credit report</span>
                           : <span className="badge badge-default">Upload</span>}
                       </td>
                       <td style={{fontSize:12,color:'var(--text-3)'}}>{doc.created_at ? new Date(doc.created_at).toLocaleString() : '--'}</td>
                       <td>
                         <div className="row-actions">
-                          <a className="btn-icon" title="Download" href={db.documents.downloadUrl(doc.id)} target="_blank" rel="noreferrer">⬇</a>
+                          <a className="btn-icon" title={doc.doc_source==='twn'||doc.doc_source==='credit' ? 'Open PDF' : 'Download'} href={doc.doc_source==='twn' && doc.source_ref_id ? `${API_URL}/api/twn/${doc.source_ref_id}/pdf` : doc.doc_source==='credit' && doc.source_ref_id ? `${API_URL}/api/credit/${doc.source_ref_id}/pdf` : db.documents.downloadUrl(doc.id)} target="_blank" rel="noreferrer">⬇</a>
                           <button className="btn-icon" title="Delete" onClick={() => handleDeleteDocument(doc.id)}>🗑</button>
                         </div>
                       </td>
@@ -4928,6 +4950,7 @@ Write a 3-paragraph executive summary with: key wins, areas needing attention, a
 const TWN_FILTERS = [['U','Mortgage Ultimate (active 90 days + inactive 24 months)'],['O','All employers within 12 months'],['R','All employers within 24 months'],['M36','All employers within 36 months'],['M60','All employers within 60 months'],['MSA','Mortgage Select All'],['A','Active only'],['I','Inactive only']];
 const fmtDate = d => d ? String(d).slice(0,10) : '—';
 const fmtUsd  = v => (v==null||v==='') ? '—' : '$' + money2(v);
+const stripHtml = s => String(s||'').replace(/<[^>]+>/g,' ').replace(/^\s*employer:\s*/i,'').replace(/\s+/g,' ').trim();
 
 function TwnPanel({ loan, borrowers, formData, setFormData, showToast }) {
   const [cfg, setCfg] = useState(null);
@@ -5076,13 +5099,15 @@ function TwnPanel({ loan, borrowers, formData, setFormData, showToast }) {
                         </div>
                         {e.annual?.length > 0 && <table style={{marginTop:8,fontSize:12,borderCollapse:'collapse'}}><thead><tr>{['Year','Base','Overtime','Commission','Bonus','Other','Total'].map(h=><th key={h} style={{textAlign:'right',padding:'2px 8px',color:'var(--text-3)',fontWeight:600}}>{h}</th>)}</tr></thead>
                           <tbody>{e.annual.map(a=><tr key={a.year}>{[a.year,a.base,a.overtime,a.commission,a.bonus,a.other,a.total].map((v,i)=><td key={i} style={{textAlign:'right',padding:'2px 8px'}}>{i===0?v:fmtUsd(v)}</td>)}</tr>)}</tbody></table>}
-                        {e.disclaimers?.length > 0 && <div style={{marginTop:8,fontStyle:'italic'}}>{e.disclaimers.map((d,i)=><div key={i}>{d.text}</div>)}</div>}
+                        {e.disclaimers?.filter(d=>d.type==='FCRA').length > 0 && <div style={{marginTop:8,padding:'8px 10px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,color:'#991b1b'}}>
+                          <strong>FCRA notice on this record:</strong> {e.disclaimers.filter(d=>d.type==='FCRA').map(d=>stripHtml(d.text)).join(' · ')}</div>}
+                        {e.disclaimers?.filter(d=>d.type!=='FCRA').length > 0 && <div style={{marginTop:8,fontStyle:'italic'}}>{e.disclaimers.filter(d=>d.type!=='FCRA').map((d,i)=><div key={i}>{stripHtml(d.text)}</div>)}</div>}
                       </div>
                     )}
                   </div>
                 ))}
                 <div style={{display:'flex',gap:6,alignItems:'center',fontSize:12,color:'var(--text-3)',flexWrap:'wrap'}}>
-                  <span>Verified {new Date(good.created_at).toLocaleString()} by {good.requested_by || '—'}{good.product_name ? ` · ${good.product_name}` : ''}{good.price != null ? ` · $${money2(good.price)}` : ''} · {good.env?.toUpperCase()}</span>
+                  <span>Verified {new Date(good.created_at).toLocaleString()} by {good.requested_by || '—'}{good.product_name ? ` · ${good.product_name}` : ''}{good.price > 0 ? ` · $${money2(good.price)}` : ''} · {good.env?.toUpperCase()}</span>
                   {good.has_pdf && !good.loan_document_id && <button className="btn btn-sm" onClick={()=>attach(good)}>Add PDF to Documents</button>}
                   {good.has_pdf && good.loan_document_id && <span>· PDF in Documents</span>}
                   <button className="btn btn-sm" onClick={()=>viewXml(good)}>{showXml===good.id ? 'Hide XML' : 'Request / response XML'}</button>
@@ -5109,6 +5134,469 @@ function TwnPanel({ loan, borrowers, formData, setFormData, showToast }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CREDIT REPORT — tri-merge credit via Equifax Mortgage Solutions (EMS).
+// One panel per loan inside Financial Info, above Liabilities. The MLO
+// records the borrower's authorization (FCRA permissible purpose), orders
+// an Individual or Joint report through /api/credit, sees the three bureau
+// scores with the qualifying one highlighted, and copies — never
+// auto-applies — the score onto the loan and tradelines into Liabilities.
+// ─────────────────────────────────────────────────────────────────
+const CREDIT_AUTH_METHODS = ['eConsent', 'Wet Signature', 'Verbal (recorded)', 'Written'];
+const BUREAU_SHORT = { Equifax: 'EFX', Experian: 'XPN', TransUnion: 'TU' };
+const scoreColor = v => v == null ? '#6b7280' : v >= 740 ? '#059669' : v >= 680 ? '#2563eb' : v >= 620 ? '#d97706' : '#b91c1c';
+const acctLast4 = v => String(v || '').replace(/\s/g, '').slice(-4);
+// Map a MISMO 2.3.1 tradeline onto the CRM's Liability Type list.
+function creditLiabilityType(l) {
+  const t = String(l.accountType || '').toLowerCase(), lt = String(l.loanType || '').toLowerCase();
+  if (l.isMortgage || t === 'mortgage' || /mortgage|homeequity|heloc/.test(lt)) return 'Mortgage';
+  if (/auto|vehicle/.test(lt)) return 'Auto Loan';
+  if (/educat|student/.test(lt)) return 'Student Loan';
+  if (/childsupport/.test(lt)) return 'Child Support';
+  if (/alimony/.test(lt)) return 'Alimony';
+  if (t === 'revolving' || /creditcard|chargeaccount|revolving/.test(lt)) return 'Revolving';
+  if (t === 'installment') return 'Installment Loan';
+  if (t === 'open' || /collection/.test(lt)) return 'Open Account';
+  return 'Other';
+}
+const isOpenTradeline = l => !/closed|paid|transferred|refinanced/i.test(l.accountStatus || '');
+const liabKey = (creditor, acct) => String(creditor || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') + '|' + acctLast4(acct);
+// A joint report lists a joint account once per borrower; show and import it once.
+function mergeTradelines(liabs) {
+  const m = new Map();
+  for (const l of liabs || []) {
+    const k = liabKey(l.creditor, l.accountIdentifier) + '|' + String(l.accountOpenedDate || '').slice(0, 10);
+    const e = m.get(k);
+    if (!e) m.set(k, { ...l, borrowerIds: [l.borrowerId || 'B1'] });
+    else {
+      if (!e.borrowerIds.includes(l.borrowerId || 'B1')) e.borrowerIds.push(l.borrowerId || 'B1');
+      for (const f of ['unpaidBalance', 'monthlyPayment', 'highBalance', 'creditLimit', 'late30', 'late60', 'late90']) if ((l[f] || 0) > (e[f] || 0)) e[f] = l[f];
+      e.derogatory = e.derogatory || l.derogatory; e.disputed = e.disputed || l.disputed;
+    }
+  }
+  return [...m.values()];
+}
+
+function CreditPanel({ loan, borrowers, formData, setFormData, showToast }) {
+  const [cfg, setCfg] = useState(null);
+  const [info, setInfo] = useState(null);                 // /api/credit/seats/:loanId
+  const [list, setList] = useState([]);                   // /api/credit/loan/:loanId
+  const [detail, setDetail] = useState({});               // report id -> full report
+  const [busy, setBusy] = useState(null);                 // 'order' | 'auth' | report id
+  const [formOpen, setFormOpen] = useState(false);
+  const [opts, setOpts] = useState({ slots: [1], mode: 'hard', bureaus: { equifax: true, experian: true, transunion: true } });
+  const [authForm, setAuthForm] = useState(null);         // { slot, method, date }
+  const [expanded, setExpanded] = useState({});           // report id -> Details open
+  const [importFor, setImportFor] = useState(null);       // report id with the import checklist open
+  const [picked, setPicked] = useState({});               // liability id -> true
+  const [showXml, setShowXml] = useState(null);
+  const [raw, setRaw] = useState(null);
+
+  const load = useCallback(() => {
+    if (!loan?.id) return;
+    apiFetch('/api/credit/config').then(setCfg).catch(() => setCfg({ configured: false, missing: ['API unreachable'] }));
+    apiFetch(`/api/credit/seats/${loan.id}`).then(setInfo).catch(() => setInfo(null));
+    apiFetch(`/api/credit/loan/${loan.id}`).then(setList).catch(() => setList([]));
+  }, [loan?.id]);
+  useEffect(load, [load]);
+
+  // Seats from the server (authorization lives in the DB), with the unsaved form as a fallback for names.
+  const seats = info?.seats || borrowers.map((b, i) => ({ slot: i === 0 ? 1 : (b._slot || i + 1), label: i === 0 ? 'Borrower' : (b.label || COB_LABELS[i - 1]), name: [b.firstName, b.lastName].filter(Boolean).join(' ') || (i === 0 ? 'Borrower' : 'Co-borrower'), hasSsn: !!(b.ssn && String(b.ssn).replace(/\D/g, '').length === 9), ready: false, problems: [], authorizedAt: null }));
+  const seatByNum = slot => seats.find(s => s.slot === slot);
+  const seatName = slot => seatByNum(slot)?.name || (slot === 1 ? 'Borrower' : 'Co-Borrower');
+  const seatLabelOf = slot => slot === 1 ? 'Borrower' : (seatByNum(slot)?.label || (slot === 2 ? 'Co-Borrower' : `Borrower ${slot}`));
+  const orderable = seats.filter(s => s.ready && s.authorizedAt);
+  const chip = (text, color) => <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: color + '22', color, whiteSpace: 'nowrap' }}>{text}</span>;
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  const saveAuth = async () => {
+    if (!authForm) return;
+    setBusy('auth');
+    try {
+      const r = await apiFetch(`/api/credit/authorize/${loan.id}`, { method: 'POST', body: { slot: authForm.slot, method: authForm.method, authorizedAt: authForm.date } });
+      setInfo(i => ({ ...(i || {}), seats: r.seats }));
+      showToast(`✓ Authorization recorded for ${seatName(authForm.slot)}`);
+      setAuthForm(null);
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
+    finally { setBusy(null); }
+  };
+
+  const order = async () => {
+    setBusy('order');
+    try {
+      const r = await apiFetch(`/api/credit/order/${loan.id}`, { method: 'POST', body: { slots: opts.slots, mode: opts.mode, bureaus: opts.bureaus } });
+      setDetail(d => ({ ...d, [r.id]: r }));
+      showToast(`✓ Credit report ${r.ems_report_id} received — ${r.summary.open} open tradelines`);
+      setFormOpen(false);
+    } catch (e) {
+      const d = e.data || {};
+      showToast('⚠ Credit report: ' + (d.friendly || d.status_description || d.error || e.message));
+    } finally { setBusy(null); load(); }
+  };
+
+  const loadDetail = async (id) => {
+    if (detail[id]) return detail[id];
+    const r = await apiFetch(`/api/credit/${id}`);
+    setDetail(d => ({ ...d, [id]: r }));
+    return r;
+  };
+  const toggleDetails = async (r) => {
+    if (!expanded[r.id]) { try { await loadDetail(r.id); } catch (e) { showToast('⚠ ' + e.message); return; } }
+    setExpanded(x => ({ ...x, [r.id]: !x[r.id] }));
+  };
+
+  const useScore = async (r, q) => {
+    setBusy(r.id);
+    try {
+      const res = await apiFetch(`/api/credit/${r.id}/use-score`, { method: 'POST', body: { borrowerId: q.borrowerId } });
+      setFormData(p => ({ ...p, creditScore: String(res.creditScore), creditScoreSource: res.creditScoreSource, creditScoreDate: res.creditScoreDate, creditReportId: res.creditReportId }));
+      setInfo(i => ({ ...(i || {}), creditScore: res.creditScore, creditScoreSource: res.creditScoreSource, creditScoreDate: res.creditScoreDate, creditReportId: res.creditReportId }));
+      showToast(`✓ Qualifying score ${res.creditScore} set on the loan (${q.basis})`);
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
+    finally { setBusy(null); }
+  };
+
+  const openImport = async (r) => {
+    if (importFor === r.id) { setImportFor(null); return; }
+    let full; try { full = await loadDetail(r.id); } catch (e) { showToast('⚠ ' + e.message); return; }
+    const existing = new Set((formData.liabilities || []).map(l => liabKey(l.creditor, l.acct)));
+    const pre = {};
+    for (const l of mergeTradelines(full.liabilities || [])) if (isOpenTradeline(l) && ((l.unpaidBalance || 0) > 0 || (l.monthlyPayment || 0) > 0)) pre[l.id] = true;
+    setPicked(pre); setImportFor(r.id);
+    void existing;
+  };
+  const doImport = (r) => {
+    const full = detail[r.id]; if (!full) return;
+    const chosen = mergeTradelines(full.liabilities || []).filter(l => picked[l.id]);
+    if (!chosen.length) { showToast('Nothing selected'); return; }
+    let added = 0, updated = 0;
+    setFormData(p => {
+      const list = Array.isArray(p.liabilities) ? [...p.liabilities] : [];
+      chosen.forEach((l, i) => {
+        const ids = l.borrowerIds || [l.borrowerId || 'B1'];
+        const slot = r.borrower_slots?.[parseInt(String(ids[0]).replace(/\D/g, ''), 10) - 1] || r.borrower_slots?.[0] || 1;
+        const label = seatLabelOf(slot);   // a joint account is filed under the first borrower on the report
+        const key = liabKey(l.creditor, l.accountIdentifier);
+        const idx = list.findIndex(x => x && liabKey(x.creditor, x.acct) === key);
+        const patch = { creditor: l.creditor || '', acct: l.accountIdentifier || '', balance: l.unpaidBalance != null ? String(l.unpaidBalance) : '', payment: l.monthlyPayment != null ? String(l.monthlyPayment) : '', _creditReportId: r.id, _creditLiabilityId: l.id, _creditVerified: true };
+        if (idx >= 0) { list[idx] = { ...list[idx], ...patch, borrower: list[idx].borrower || label }; updated++; }
+        else { list.push({ id: Date.now() + i, type: creditLiabilityType(l), dti: 'Include', borrower: label, ...patch }); added++; }
+      });
+      return { ...p, liabilities: list };
+    });
+    setImportFor(null);
+    showToast(`✓ ${added} liabilit${added === 1 ? 'y' : 'ies'} added${updated ? `, ${updated} updated` : ''} from ${r.ems_report_id} — review below and Save`);
+  };
+
+  const attach = async (r) => { try { const res = await apiFetch(`/api/credit/${r.id}/attach-pdf`, { method: 'POST' }); showToast(res.already ? 'Already in Documents' : '✓ PDF added to Documents'); load(); } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } };
+  const viewXml = async (r) => { if (showXml === r.id) { setShowXml(null); return; } try { setRaw(await apiFetch(`/api/credit/${r.id}/raw`)); setShowXml(r.id); } catch (e) { showToast('⚠ ' + e.message); } };
+  const retrieve = async (r) => {
+    setBusy(r.id);
+    try { const res = await apiFetch(`/api/credit/${r.id}/retrieve`, { method: 'POST' }); setDetail(d => ({ ...d, [r.id]: res })); showToast(`✓ Report ${r.ems_report_id} retrieved again from EMS`); }
+    catch (e) { const d = e.data || {}; showToast('⚠ ' + (d.friendly || d.status_description || d.error || e.message)); }
+    finally { setBusy(null); load(); }
+  };
+
+  const latest = list[0];
+  const latestOk = list.find(r => r.ok);
+  const shown = list.filter(r => r === latest || r === latestOk);
+  const history = list.filter(r => !shown.includes(r));
+  const toggleSlot = (slot) => setOpts(o => {
+    const has = o.slots.includes(slot);
+    const next = has ? o.slots.filter(s => s !== slot) : [...o.slots, slot].sort((a, b) => a - b).slice(0, 2);
+    return { ...o, slots: next.length ? next : [slot] };
+  });
+
+  const renderScores = (r) => {
+    const groups = r.qualifying?.length ? r.qualifying : [];
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 10, marginTop: 10 }}>
+        {groups.map(q => {
+          const onLoan = info?.creditReportId === r.id && Number(formData.creditScore) === q.qualifying && String(info?.creditScoreSource || '').includes(q.bureau);
+          return (
+            <div key={q.borrowerId} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', background: '#fff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)' }}>{seatName(q.slot)} <span style={{ fontWeight: 500, color: 'var(--text-3)' }}>· {seatLabelOf(q.slot)}</span></div>
+                {onLoan ? chip('Qualifying score on loan', '#059669')
+                  : <button className="btn btn-sm btn-primary" disabled={busy === r.id} onClick={() => useScore(r, q)} title={`Sets the loan's qualifying score to ${q.qualifying} (${q.basis})`}>Use {q.qualifying} as qualifying score</button>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                {['Equifax', 'Experian', 'TransUnion'].map(b => {
+                  const s = q.scores.find(x => x.bureau === b);
+                  const isQ = s && s.value === q.qualifying && s.bureau === q.bureau;
+                  return (
+                    <div key={b} style={{ flex: 1, textAlign: 'center', padding: '8px 4px', borderRadius: 8, border: `2px solid ${isQ ? scoreColor(s.value) : 'var(--border-light)'}`, background: isQ ? scoreColor(s.value) + '11' : 'var(--cream)' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.05em', color: 'var(--text-3)' }}>{BUREAU_SHORT[b]}</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: s ? scoreColor(s.value) : 'var(--text-3)', fontVariantNumeric: 'tabular-nums' }}>{s?.value ?? '—'}</div>
+                      <div style={{ fontSize: 9, color: 'var(--text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s?.model || ''}>{s ? (s.model || b) : 'not returned'}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Qualifying: <strong style={{ color: scoreColor(q.qualifying) }}>{q.qualifying}</strong> — {q.basis}{q.bureau ? ` (${q.bureau})` : ''}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderDetails = (r) => {
+    const full = detail[r.id]; if (!full) return null;
+    const liabs = full.liabilities || [];
+    const fmtD = v => v ? String(v).slice(0, 10) : '—';
+    const slotOfId = bid => r.borrower_slots?.[parseInt(String(bid || 'B1').replace(/\D/g, ''), 10) - 1] || 1;
+    const borrowerOf = l => (l.borrowerIds || [l.borrowerId]).map(b => seatLabelOf(slotOfId(b))).join(' + ');
+    const merged = mergeTradelines(liabs);
+    return (
+      <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Tradelines ({merged.length}{merged.length !== liabs.length ? ` · ${liabs.length - merged.length} joint account${liabs.length - merged.length === 1 ? '' : 's'} shown once` : ''})</div>
+        <div className="table-wrap"><table style={{ fontSize: 12 }}>
+          <thead><tr><th>Creditor</th><th>Type</th><th>Acct</th><th>Opened</th><th>Status</th><th style={{ textAlign: 'right' }}>Balance</th><th style={{ textAlign: 'right' }}>Payment</th><th style={{ textAlign: 'right' }}>Limit / High</th><th>30/60/90</th><th>Who</th><th>Bureaus</th></tr></thead>
+          <tbody>{merged.map(l => (
+            <tr key={l.id} style={l.derogatory ? { background: '#fff7f7' } : undefined}>
+              <td><strong>{l.creditor || '—'}</strong>{l.derogatory ? <span style={{ marginLeft: 6 }}>{chip('derog', '#b91c1c')}</span> : null}{l.disputed ? <span style={{ marginLeft: 6 }}>{chip('disputed', '#d97706')}</span> : null}</td>
+              <td>{creditLiabilityType(l)}<div style={{ fontSize: 10, color: 'var(--text-3)' }}>{l.loanType || l.accountType || ''}</div></td>
+              <td style={{ whiteSpace: 'nowrap' }}>…{acctLast4(l.accountIdentifier) || '—'}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>{fmtD(l.accountOpenedDate)}</td>
+              <td>{l.accountStatus || '—'}{l.currentRating && l.currentRating !== 'AsAgreed' ? <div style={{ fontSize: 10, color: '#b91c1c' }}>{l.currentRating}</div> : null}</td>
+              <td style={{ textAlign: 'right' }}>{fmtUsd(l.unpaidBalance)}</td>
+              <td style={{ textAlign: 'right' }}>{fmtUsd(l.monthlyPayment)}</td>
+              <td style={{ textAlign: 'right' }}>{fmtUsd(l.creditLimit ?? l.highBalance)}</td>
+              <td style={{ color: (l.late30 || l.late60 || l.late90) ? '#b91c1c' : undefined }}>{l.late30 ?? 0}/{l.late60 ?? 0}/{l.late90 ?? 0}</td>
+              <td>{borrowerOf(l)}</td>
+              <td style={{ fontSize: 10 }}>{(l.repositories || []).map(b => BUREAU_SHORT[b] || b).join(' ') || '—'}</td>
+            </tr>))}</tbody>
+        </table></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 14, marginTop: 10 }}>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Inquiries ({(full.inquiries || []).length})</div>
+            {(full.inquiries || []).length === 0 ? <div style={{ color: 'var(--text-3)' }}>None reported</div> : (full.inquiries || []).map((q, i) => <div key={q.id || i}>{fmtD(q.date)} · {q.name || '—'}{q.businessType ? ` (${q.businessType})` : ''} · {borrowerOf(q)}</div>)}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Public records ({(full.publicRecords || []).length})</div>
+            {(full.publicRecords || []).length === 0 ? <div style={{ color: 'var(--text-3)' }}>None reported</div> : (full.publicRecords || []).map((p, i) => <div key={p.id || i}>{fmtD(p.filedDate)} · {p.type || '—'} · {fmtUsd(p.amount)}{p.dispositionType ? ` · ${p.dispositionType}${p.dispositionDate ? ' ' + fmtD(p.dispositionDate) : ''}` : ''}{p.court ? ` · ${p.court}` : ''} · {borrowerOf(p)}</div>)}
+          </div>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Score factors</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: '4px 14px' }}>
+            {(full.scores || []).map(s => <div key={s.id || s.bureau + s.borrowerId}><strong>{s.bureau}</strong> {s.value} · {seatLabelOf(r.borrower_slots?.[parseInt(String(s.borrowerId || 'B1').replace(/\D/g, ''), 10) - 1] || 1)}{s.model ? <span style={{ color: 'var(--text-3)' }}> · {s.model}</span> : null}
+              <ul style={{ margin: '2px 0 6px 16px', padding: 0 }}>{(s.factors || []).map((f, i) => <li key={i}>{f.code ? `${f.code} — ` : ''}{f.text}</li>)}</ul></div>)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderImport = (r) => {
+    const full = detail[r.id]; if (!full) return null;
+    const existing = new Map((formData.liabilities || []).map(l => [liabKey(l.creditor, l.acct), l]));
+    const rows = mergeTradelines(full.liabilities || []);
+    const whoOf = l => (l.borrowerIds || [l.borrowerId]).map(b => seatLabelOf(r.borrower_slots?.[parseInt(String(b || 'B1').replace(/\D/g, ''), 10) - 1] || 1)).join(' + ');
+    const n = rows.filter(l => picked[l.id]).length;
+    return (
+      <div style={{ marginTop: 10, border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: 12, background: 'var(--accent-light)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 700 }}>Import liabilities from {r.ems_report_id} <span style={{ fontWeight: 400, color: 'var(--text-2)', fontSize: 12 }}>— open accounts with a balance are pre-selected; closed and paid accounts are not. Nothing is written until you click Import.</span></div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn btn-sm" onClick={() => setPicked(Object.fromEntries(rows.map(l => [l.id, true])))}>All</button>
+            <button className="btn btn-sm" onClick={() => setPicked({})}>None</button>
+          </div>
+        </div>
+        <div className="table-wrap" style={{ marginTop: 8 }}><table style={{ fontSize: 12, background: '#fff' }}>
+          <thead><tr><th></th><th>Creditor</th><th>Liability type</th><th>Acct</th><th>Status</th><th style={{ textAlign: 'right' }}>Balance</th><th style={{ textAlign: 'right' }}>Payment</th><th>Who</th><th>On loan</th></tr></thead>
+          <tbody>{rows.map(l => {
+            const ex = existing.get(liabKey(l.creditor, l.accountIdentifier));
+            return (
+              <tr key={l.id} style={{ opacity: isOpenTradeline(l) ? 1 : .6 }}>
+                <td><input type="checkbox" checked={!!picked[l.id]} onChange={e => setPicked(p => ({ ...p, [l.id]: e.target.checked }))} /></td>
+                <td><strong>{l.creditor || '—'}</strong></td>
+                <td>{creditLiabilityType(l)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>…{acctLast4(l.accountIdentifier) || '—'}</td>
+                <td>{l.accountStatus || '—'}</td>
+                <td style={{ textAlign: 'right' }}>{fmtUsd(l.unpaidBalance)}</td>
+                <td style={{ textAlign: 'right' }}>{fmtUsd(l.monthlyPayment)}</td>
+                <td>{whoOf(l)}</td>
+                <td>{ex ? chip(`will update (${fmtUsd(ex.balance)} / ${fmtUsd(ex.payment)})`, '#d97706') : chip('new', '#059669')}</td>
+              </tr>);
+          })}</tbody>
+        </table></div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+          <button className="btn btn-sm" onClick={() => setImportFor(null)}>Cancel</button>
+          <button className="btn btn-sm btn-primary" disabled={!n} onClick={() => doImport(r)}>Import {n} selected</button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderReport = (r, compact = false) => {
+    const covered = (r.borrower_slots || [1]).map(seatName).join(' + ');
+    if (!r.ok) {
+      return (
+        <div key={r.id} style={{ marginTop: 10, border: '1px solid #fecaca', borderRadius: 'var(--radius)', padding: '10px 12px', background: '#fef2f2' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div><strong style={{ color: '#991b1b' }}>Order failed{r.status_code ? ` — ${r.status_code}` : ''}</strong> <span style={{ fontSize: 12, color: 'var(--text-2)' }}>· {covered} · {new Date(r.created_at).toLocaleString()} · by {r.requested_by || '—'}</span></div>
+            <button className="btn btn-sm" onClick={() => viewXml(r)}>{showXml === r.id ? 'Hide XML' : 'Request / response XML'}</button>
+          </div>
+          <div style={{ fontSize: 13, color: '#991b1b', marginTop: 4 }}>{r.friendly || r.status_description || 'EMS returned an error'}</div>
+          {r.friendly && r.status_description && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>EMS: {r.status_description}</div>}
+        </div>
+      );
+    }
+    return (
+      <div key={r.id} style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', background: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <strong>Tri-merge report {r.ems_report_id}</strong>
+            {chip(r.request_type === 'Joint' ? 'Joint' : 'Individual', '#2563eb')}
+            {chip((r.bureaus || '').split(',').filter(Boolean).join(' · ') || 'EFX · XPN · TU', '#6b7280')}
+            {r.pull_mode === 'soft' ? chip('Soft pull', '#d97706') : null}
+            <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{covered}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button className="btn btn-sm" onClick={() => toggleDetails(r)}>{expanded[r.id] ? 'Less' : 'Details'}</button>
+            <button className="btn btn-sm btn-primary" onClick={() => openImport(r)} title="Pick which tradelines to bring into this loan's Liabilities">{importFor === r.id ? 'Close import' : 'Import liabilities'}</button>
+          </div>
+        </div>
+        {!compact && renderScores(r)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '6px 14px', marginTop: 10, fontSize: 12 }}>
+          <div><span style={{ color: 'var(--text-3)' }}>Open tradelines </span><strong>{r.summary?.open ?? '—'}</strong> <span style={{ color: 'var(--text-3)' }}>of {r.summary?.tradelines ?? '—'}</span></div>
+          <div><span style={{ color: 'var(--text-3)' }}>Balances </span><strong>{fmtUsd(r.summary?.balances)}</strong></div>
+          <div><span style={{ color: 'var(--text-3)' }}>Monthly payments </span><strong>{fmtUsd(r.summary?.payments)}</strong></div>
+          <div><span style={{ color: 'var(--text-3)' }}>Derogatory </span><strong style={{ color: r.summary?.derogatory ? '#b91c1c' : undefined }}>{r.summary?.derogatory ?? 0}</strong></div>
+          <div><span style={{ color: 'var(--text-3)' }}>Inquiries </span><strong>{r.summary?.inquiries ?? 0}</strong></div>
+          <div><span style={{ color: 'var(--text-3)' }}>Public records </span><strong style={{ color: r.summary?.publicRecords ? '#b91c1c' : undefined }}>{r.summary?.publicRecords ?? 0}</strong></div>
+        </div>
+        {expanded[r.id] && renderDetails(r)}
+        {importFor === r.id && renderImport(r)}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--text-3)', flexWrap: 'wrap', marginTop: 10 }}>
+          <span>Received {new Date(r.created_at).toLocaleString()} by {r.requested_by || '—'} · {cfg?.environment || ''}</span>
+          {r.has_pdf && <a className="btn btn-sm" href={`${API_URL}/api/credit/${r.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
+          {r.has_pdf && !r.loan_document_id && <button className="btn btn-sm" onClick={() => attach(r)}>Add PDF to Documents</button>}
+          {r.has_pdf && r.loan_document_id && <span>· PDF in Documents</span>}
+          <button className="btn btn-sm" onClick={() => viewXml(r)}>{showXml === r.id ? 'Hide XML' : 'Request / response XML'}</button>
+          <button className="btn btn-sm" disabled={busy === r.id} onClick={() => retrieve(r)} title="Free reprint by EMS order number — no new bureau inquiry">{busy === r.id ? 'Retrieving…' : 'Retrieve again'}</button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 16px', background: '#0f1623', color: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: '.02em' }}>Credit Report</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>Tri-merge credit · Equifax Mortgage Solutions</span>
+        </div>
+        {cfg && (cfg.configured
+          ? chip(cfg.environment === 'PRODUCTION' ? 'PRODUCTION' : 'UAT / TEST', cfg.environment === 'PRODUCTION' ? '#34d399' : '#fbbf24')
+          : chip('Not configured', '#f87171'))}
+      </div>
+      {cfg && !cfg.configured && <div style={{ padding: '10px 16px', fontSize: 12, color: '#b45309', background: '#fffbeb' }}>Missing on the server: {(cfg.missing || []).join(', ')}. Add the EMS_* settings to .env and restart the API.</div>}
+
+      {/* Seats: who is on the loan and whether each has authorized a credit pull */}
+      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'grid', gap: 8 }}>
+        {seats.map(s => (
+          <div key={s.slot} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>{s.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name}
+                {s.hasSsn ? <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, marginLeft: 8 }}>SSN •••-••-{s.ssnLast4 || '••••'}</span> : <span style={{ fontSize: 11, color: '#b45309', fontWeight: 500, marginLeft: 8 }}>no SSN on file</span>}
+              </div>
+              {s.problems?.length > 0 && <div style={{ fontSize: 11, color: '#b45309' }}>Needed before ordering: {s.problems.map(p => p.replace(/^[^:]+:\s*/, '')).join(' · ')}</div>}
+              <div style={{ fontSize: 12, marginTop: 2 }}>
+                {s.authorizedAt
+                  ? <>{chip(`Authorized ${fmtDate(s.authorizedAt)}${s.authMethod ? ' · ' + s.authMethod : ''}`, '#059669')} <button className="btn btn-sm" style={{ fontSize: 11, marginLeft: 6, padding: '1px 8px' }} onClick={() => setAuthForm({ slot: s.slot, method: s.authMethod || 'eConsent', date: fmtDate(s.authorizedAt) })}>change</button></>
+                  : <>{chip('Not authorized — credit cannot be ordered', '#b91c1c')} <button className="btn btn-sm" style={{ marginLeft: 6 }} onClick={() => setAuthForm({ slot: s.slot, method: 'eConsent', date: today() })}>Record authorization</button></>}
+              </div>
+              {authForm?.slot === s.slot && (
+                <div style={{ marginTop: 8, padding: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--cream)', display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ margin: 0 }}><label className="form-label">How {s.name} authorized the credit pull</label>
+                    <select className="form-select" value={authForm.method} onChange={e => setAuthForm(a => ({ ...a, method: e.target.value }))}>{CREDIT_AUTH_METHODS.map(m => <option key={m}>{m}</option>)}</select></div>
+                  <div className="form-group" style={{ margin: 0 }}><label className="form-label">Date</label>
+                    <input className="form-input" type="date" value={authForm.date} max={today()} onChange={e => setAuthForm(a => ({ ...a, date: e.target.value }))} /></div>
+                  <button className="btn btn-sm btn-primary" disabled={busy === 'auth'} onClick={saveAuth}>{busy === 'auth' ? 'Saving…' : 'Save authorization'}</button>
+                  <button className="btn btn-sm" onClick={() => setAuthForm(null)}>Cancel</button>
+                  <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--text-3)' }}>Keep the signed authorization (or the recording) in the file. This is the permissible purpose for the credit inquiry and is logged with your name, date and IP.</div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {seats.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Add the borrower on Borrower Info and save the loan first.</div>}
+      </div>
+
+      {/* Order */}
+      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
+            {info?.creditScore ? <>Qualifying score on loan: <strong style={{ color: scoreColor(info.creditScore) }}>{info.creditScore}</strong>{info.creditScoreSource ? <span style={{ color: 'var(--text-3)' }}> · {info.creditScoreSource}{info.creditScoreDate ? ` · ${info.creditScoreDate}` : ''}</span> : <span style={{ color: 'var(--text-3)' }}> · entered by hand</span>}</>
+              : <span style={{ color: 'var(--text-3)' }}>No qualifying score on the loan yet.</span>}
+          </div>
+          <button className="btn btn-sm btn-primary" disabled={!cfg?.configured || !orderable.length || busy === 'order'} title={!orderable.length ? 'Record the borrower\'s authorization and complete name, SSN and address first' : ''}
+            onClick={() => { setFormOpen(o => !o); setOpts(o => ({ ...o, slots: [orderable[0]?.slot || 1] })); }}>
+            {busy === 'order' ? 'Contacting Equifax…' : latestOk ? 'Order a new report' : 'Order credit report'}
+          </button>
+        </div>
+        {formOpen && (
+          <div style={{ marginTop: 10, padding: 12, border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--cream)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}><label className="form-label">Report for</label>
+                {seats.map(s => {
+                  const ok = s.ready && s.authorizedAt;
+                  return <label key={s.slot} className="check-row" style={{ opacity: ok ? 1 : .5 }}><input type="checkbox" disabled={!ok} checked={opts.slots.includes(s.slot)} onChange={() => toggleSlot(s.slot)} /> {s.name} <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({s.label}{ok ? '' : s.authorizedAt ? ' · incomplete' : ' · not authorized'})</span></label>;
+                })}
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>{opts.slots.length === 2 ? 'Joint report — one order, both borrowers (B1 = ' + seatName(opts.slots[0]) + ').' : 'Individual report. Tick both borrowers for a joint report.'}</div>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}><label className="form-label">Bureaus</label>
+                {[['equifax', 'Equifax'], ['experian', 'Experian'], ['transunion', 'TransUnion']].map(([k, l]) => <label key={k} className="check-row"><input type="checkbox" checked={opts.bureaus[k]} onChange={e => setOpts(o => ({ ...o, bureaus: { ...o.bureaus, [k]: e.target.checked } }))} /> {l}</label>)}
+              </div>
+              <div className="form-group" style={{ margin: 0 }}><label className="form-label">Pull type</label>
+                <select className="form-select" value={opts.mode} onChange={e => setOpts(o => ({ ...o, mode: e.target.value }))}>
+                  <option value="hard">Hard pull (mortgage credit report)</option>
+                  {cfg?.softPull && <option value="soft">Soft pull (prequalification)</option>}
+                </select>
+                {!cfg?.softPull && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>Soft pulls need a separate EMS prequalification account (EMS_SOFT_ACCOUNT).</div>}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 10 }}>This order places a credit inquiry on the borrower's file under permissible purpose "application for credit", logged under your login for loan <strong>{loan?.loan_number || info?.loanNumber}</strong>. The report, the scores and the PDF are stored with the loan.</div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+              <button className="btn btn-sm" onClick={() => setFormOpen(false)}>Cancel</button>
+              <button className="btn btn-sm btn-primary" disabled={busy === 'order' || !opts.slots.length || !(opts.bureaus.equifax || opts.bureaus.experian || opts.bureaus.transunion)} onClick={order}>{busy === 'order' ? 'Contacting Equifax…' : `Order ${opts.slots.length === 2 ? 'joint' : 'individual'} credit report`}</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Reports */}
+      {(shown.length > 0 || history.length > 0) && (
+        <div style={{ padding: '4px 16px 14px', borderTop: '1px solid var(--border)' }}>
+          {shown.map(r => renderReport(r))}
+          {showXml && raw && list.some(v => v.id === showXml) && (
+            <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <textarea readOnly value={raw.request_xml || ''} style={{ fontFamily: 'monospace', fontSize: 10, height: 220, width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: 6 }} />
+              <textarea readOnly value={raw.response_xml || ''} style={{ fontFamily: 'monospace', fontSize: 10, height: 220, width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: 6 }} />
+            </div>
+          )}
+          {history.length > 0 && (
+            <details style={{ marginTop: 8, fontSize: 12, color: 'var(--text-2)' }}><summary style={{ cursor: 'pointer' }}>History ({history.length})</summary>
+              {history.map(v => <div key={v.id} style={{ padding: '3px 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span>{new Date(v.created_at).toLocaleString()}</span><span>{v.request_type} · {(v.borrower_slots || [1]).map(seatName).join(' + ')}</span>
+                {v.ok ? chip(`${v.ems_report_id} · ${v.qualifying.map(q => q.qualifying).join(' / ')}`, '#059669') : chip(v.status_code ? `${v.status_code}` : 'error', '#b91c1c')}
+                <span>{v.ok ? '' : (v.friendly || v.status_description || '')}</span>
+                {v.has_pdf && <a href={`${API_URL}/api/credit/${v.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
+                <button className="btn btn-sm" onClick={() => viewXml(v)}>XML</button>
+                {v.ok && <button className="btn btn-sm" onClick={() => { setExpanded(x => ({ ...x, [v.id]: true })); loadDetail(v.id).catch(() => {}); setList(l => [v, ...l.filter(x => x.id !== v.id)]); }}>Show</button>}
+              </div>)}
+            </details>
+          )}
+        </div>
+      )}
     </div>
   );
 }

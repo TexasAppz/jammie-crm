@@ -281,14 +281,28 @@ function parseResponse(xmlText) {
 
   if (!result.ok) return result;
 
+  const num = v => (v === undefined || v === null || v === '') ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
+
   // ── Scores ──
+  // _Value arrives zero-padded ("00694"); Number() handles that. The model
+  // name is in _ModelNameTypeOtherDescription when _ModelNameType="Other"
+  // (that is how EMS labels FICO 10T / Classic 04 — Appendix C).
   result.scores = arr(creditResponse.CREDIT_SCORE).map(s => ({
+    id: s.CreditScoreID || null,
     borrowerId: s.BorrowerID || null,
     bureau: s.CreditRepositorySourceType || null,
-    model: s._ModelNameType || s._ModelNameTypeOtherDescription || null,
-    value: s._Value ? Number(s._Value) : null,
+    model: (s._ModelNameType && s._ModelNameType !== 'Other') ? s._ModelNameType : (s._ModelNameTypeOtherDescription || s._ModelNameType || null),
+    value: num(s._Value),
     date: s._Date || null,
+    factaInquiries: s._FACTAInquiriesIndicator === 'Y',
     factors: arr(s._FACTOR).map(f => ({ code: f._Code, text: f._Text })).filter(f => f.code || f.text),
+  }));
+
+  // ── Borrowers as the bureaus identified them (one CREDIT_FILE per bureau) ──
+  result.files = arr(creditResponse.CREDIT_FILE).map(f => ({
+    id: f.CreditFileID || null, borrowerId: f.BorrowerID || null,
+    bureau: f.CreditRepositorySourceType || null, resultStatus: f._ResultStatusType || null, infileDate: f._InfileDate || null,
+    name: f._BORROWER ? [f._BORROWER._FirstName, f._BORROWER._MiddleName, f._BORROWER._LastName].filter(Boolean).join(' ') : null,
   }));
 
   // ── Tradelines / liabilities ──
@@ -296,32 +310,46 @@ function parseResponse(xmlText) {
     id: l.CreditLiabilityID || null,
     borrowerId: l.BorrowerID || null,
     creditor: (l._CREDITOR || {})._Name || null,
+    creditorAddress: l._CREDITOR ? [l._CREDITOR._StreetAddress, l._CREDITOR._City, l._CREDITOR._State, l._CREDITOR._PostalCode].filter(Boolean).join(', ') || null : null,
     accountIdentifier: l._AccountIdentifier || null,
-    accountType: l._AccountType || null,
+    accountType: l._AccountType || null,                 // Mortgage | Revolving | Installment | Open
+    loanType: l.CreditLoanType || null,                  // Automobile | CreditCard | ConventionalRealEstateMortgage | Educational | …
     accountOwnershipType: l._AccountOwnershipType || null,
-    accountStatus: l._AccountStatusType || null,
+    accountStatus: l._AccountStatusType || null,         // Open | Closed | Paid | Transferred | …
     accountOpenedDate: l._AccountOpenedDate || null,
+    accountClosedDate: l._AccountClosedDate || null,
     accountReportedDate: l._AccountReportedDate || null,
-    unpaidBalance: l._UnpaidBalanceAmount ? Number(l._UnpaidBalanceAmount) : null,
-    monthlyPayment: l._MonthlyPaymentAmount ? Number(l._MonthlyPaymentAmount) : null,
-    highBalance: l._HighBalanceAmount ? Number(l._HighBalanceAmount) : null,
-    creditLimit: l._CreditLimitAmount ? Number(l._CreditLimitAmount) : null,
-    termsMonths: l._TermsMonthsCount ? Number(l._TermsMonthsCount) : null,
-    isMortgage: l._AccountType === 'Mortgage' || l._MortgageType != null,
+    lastActivityDate: l._LastActivityDate || null,
+    unpaidBalance: num(l._UnpaidBalanceAmount),
+    monthlyPayment: num(l._MonthlyPaymentAmount),
+    pastDue: num(l._PastDueAmount),
+    highBalance: num(l._HighBalanceAmount),
+    creditLimit: num(l._CreditLimitAmount),
+    termsMonths: num(l._TermsMonthsCount),
+    monthsReviewed: num(l._MonthsReviewedCount),
+    isMortgage: l._AccountType === 'Mortgage' || l._MortgageType != null || /Mortgage/i.test(l.CreditLoanType || ''),
     derogatory: l._DerogatoryDataIndicator === 'Y',
+    disputed: l._ConsumerDisputeIndicator === 'Y',
+    currentRating: l._CURRENT_RATING ? (l._CURRENT_RATING._Type || l._CURRENT_RATING._Code || null) : null,
     late30: l._LATE_COUNT ? Number(l._LATE_COUNT._30Days || 0) : null,
     late60: l._LATE_COUNT ? Number(l._LATE_COUNT._60Days || 0) : null,
     late90: l._LATE_COUNT ? Number(l._LATE_COUNT._90Days || 0) : null,
+    paymentPattern: l._PAYMENT_PATTERN ? (l._PAYMENT_PATTERN._Data || null) : null,
     repositories: arr(l.CREDIT_REPOSITORY).map(r => r._SourceType).filter(Boolean),
+    comments: arr(l.CREDIT_COMMENT).flatMap(c => arr(c._Text)).map(t => (typeof t === 'string' ? t : t['#text'] || '')).filter(Boolean),
   }));
 
   // ── Public records, inquiries, embedded PDF ──
   result.publicRecords = arr(creditResponse.CREDIT_PUBLIC_RECORD).map(p => ({
-    type: p._Type || null, dispositionType: p._DispositionType || null,
-    filedDate: p._FiledDate || null, amount: p._LegalObligationAmount ? Number(p._LegalObligationAmount) : null,
+    id: p.CreditPublicRecordID || null, borrowerId: p.BorrowerID || null,
+    type: p._Type || null, dispositionType: p._DispositionType || null, dispositionDate: p._DispositionDate || null,
+    filedDate: p._FiledDate || null, amount: num(p._LegalObligationAmount), court: p._CourtName || null, docket: p._DocketIdentifier || null,
+    repositories: arr(p.CREDIT_REPOSITORY).map(r => r._SourceType).filter(Boolean),
   }));
   result.inquiries = arr(creditResponse.CREDIT_INQUIRY).map(q => ({
-    name: q._Name || null, date: q._Date || null, purpose: q._PurposeType || null,
+    id: q.CreditInquiryID || null, borrowerId: q.BorrowerID || null,
+    name: q._Name || null, date: q._Date || null, purpose: q._PurposeType || null, businessType: q.CreditBusinessType || null,
+    repositories: arr(q.CREDIT_REPOSITORY).map(r => r._SourceType).filter(Boolean),
   }));
 
   // The human-readable report arrives base64-encoded in EMBEDDED_FILE.
@@ -338,15 +366,64 @@ function parseResponse(xmlText) {
 
 async function submitCredit(opts) {
   const { xml, url } = buildSubmitRequest(opts);
+  const t0 = Date.now();
   const responseXml = await send(url, xml);
-  return parseResponse(responseXml);
+  return { ...parseResponse(responseXml), requestXml: redact(xml), durationMs: Date.now() - t0 };
 }
 
 async function retrieveCredit(opts) {
   const { xml, url } = buildRetrieveRequest(opts);
+  const t0 = Date.now();
   const responseXml = await send(url, xml);
-  return parseResponse(responseXml);
+  return { ...parseResponse(responseXml), requestXml: redact(xml), durationMs: Date.now() - t0 };
 }
+
+// ── Derived views ───────────────────────────────────────────────────────
+
+/**
+ * Qualifying (representative) score per borrower, the way mortgage
+ * underwriting picks it: middle of three, lower of two, the one when only
+ * one bureau returned a score. Returns [{ borrowerId, qualifying, basis, bureau, scores }].
+ */
+function qualifyingScores(scores = []) {
+  const byBorrower = {};
+  for (const s of scores) {
+    if (s.value == null) continue;
+    (byBorrower[s.borrowerId || 'B1'] ||= []).push(s);
+  }
+  return Object.entries(byBorrower).map(([borrowerId, list]) => {
+    const sorted = [...list].sort((a, b) => a.value - b.value);
+    let pick, basis;
+    if (sorted.length >= 3) { pick = sorted[Math.floor(sorted.length / 2)]; basis = `middle of ${sorted.length}`; }
+    else if (sorted.length === 2) { pick = sorted[0]; basis = 'lower of 2'; }
+    else { pick = sorted[0]; basis = 'only score returned'; }
+    return { borrowerId, qualifying: pick.value, basis, bureau: pick.bureau, model: pick.model, scores: list.map(s => ({ bureau: s.bureau, value: s.value, model: s.model })) };
+  });
+}
+
+/** Strip what must not leave the server: the account password and SSNs. */
+function redact(xml) {
+  return String(xml || '')
+    .replace(/LoginAccountPassword="[^"]*"/g, 'LoginAccountPassword="***"')
+    .replace(/_SSN="(\d{5})(\d{4})"/g, '_SSN="*****$2"')
+    .replace(/_SSN="\d[^"]*"/g, '_SSN="***"');
+}
+
+/** Appendix B, the codes an MLO can act on. Anything else shows EMS's own text. */
+const FRIENDLY = {
+  E002: 'Borrower first name is missing.', E003: 'Borrower last name is missing.', E004: 'Borrower SSN is missing or not 9 digits.',
+  E005: 'Borrower current address is incomplete.', E006: 'Borrower current address is incomplete.',
+  E037: 'EMS rejected the account password (or the account is suspended). Check EMS_PASSWORD in .env.',
+  E046: 'EMS rejected the login ID. Check EMS_ACCOUNT in .env.',
+  E063: 'Loan number is missing or invalid.',
+  E605: 'The request XML was not well formed (a special character in a name or address was not escaped).',
+  E707: 'Borrower SSN does not match the bureaus\' records (9-for-9 SSN match failed). Check the SSN on Borrower Info.',
+  E708: 'Borrower SSN does not match, co-borrower matches.', E709: 'Borrower SSN matches, co-borrower SSN does not match.',
+  E710: 'Neither the borrower nor the co-borrower SSN matches the bureaus\' records.',
+  E901: 'Experian is not available right now. Retry later or order without Experian.',
+  S100: 'EMS could not process the order.', S104: 'The order is still processing at EMS — use Retrieve again in a few minutes.',
+};
+function friendly(code, fallback) { return (code && FRIENDLY[String(code).toUpperCase()]) || fallback || null; }
 
 module.exports = {
   buildSubmitRequest,
@@ -355,5 +432,8 @@ module.exports = {
   submitCredit,
   retrieveCredit,
   validateBorrower,
+  qualifyingScores,
+  redact,
+  friendly,
   EMS_UAT_URL,
 };
