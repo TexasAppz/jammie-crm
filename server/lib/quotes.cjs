@@ -274,7 +274,9 @@ async function decideQuote({ quoteId, decision, by, reason, onBehalfNote }) {
   const notSelected = [];
   try {
     await conn.beginTransaction();
-    const stamp = { ...byInfo(by), on_behalf_note: by.type === 'mlo' ? (onBehalfNote || null) : null };   // decided_at is set with NOW() below (same clock as every other timestamp)
+    // Explicit columns (no object expansion mid-statement: mysql2 on the VM renders that as '[object Object]').
+    const st = byInfo(by); const stampCols = 'decided_by=?, decided_by_type=?, decided_by_name=?, on_behalf_note=?';
+    const stampVals = [st.decided_by, st.decided_by_type, st.decided_by_name, by.type === 'mlo' ? (onBehalfNote || null) : null];
     if (decision === 'accepted') {
       // Every other live quote on this loan (same type) steps aside — reversible while still valid.
       const [others] = await conn.query(
@@ -285,7 +287,7 @@ async function decideQuote({ quoteId, decision, by, reason, onBehalfNote }) {
         const [[orq]] = await conn.query('SELECT * FROM insurance_quote_requests WHERE id=?', [o.request_id]);
         notSelected.push({ quote: o, request: orq });
       }
-      await conn.query('UPDATE insurance_quotes SET status=\'accepted\', decline_reason=NULL, decided_at=NOW(), ? WHERE id=?', [stamp, q.id]);
+      await conn.query(`UPDATE insurance_quotes SET status='accepted', decline_reason=NULL, decided_at=NOW(), ${stampCols} WHERE id=?`, [...stampVals, q.id]);
       await conn.query(`UPDATE insurance_quote_requests SET status='accepted', closed_at=NOW(), close_reason=NULL WHERE id=?`, [r.id]);
       // The official figure: premium into the loan, locked.
       const note = `${q.quote_id} accepted by ${by.name || (by.type === 'mlo' ? 'loan officer' : 'borrower')}${by.type === 'mlo' ? ' (on the borrower\'s behalf)' : ''} on ${today()}`;
@@ -293,7 +295,7 @@ async function decideQuote({ quoteId, decision, by, reason, onBehalfNote }) {
       await conn.query('INSERT INTO hoi_log SET ?', { loan_id: q.loan_id, event: 'quote_accepted', amount: Number(q.monthly_premium), quote_id: q.id, note: note.slice(0, 255), by_type: by.type, by_id: by.id || null, by_name: by.name || null });
     } else {
       const wasAccepted = q.status === 'accepted';
-      await conn.query('UPDATE insurance_quotes SET status=\'declined\', decline_reason=?, decided_at=NOW(), ? WHERE id=?', [reason ? String(reason).slice(0, 1000) : null, stamp, q.id]);
+      await conn.query(`UPDATE insurance_quotes SET status='declined', decline_reason=?, decided_at=NOW(), ${stampCols} WHERE id=?`, [reason ? String(reason).slice(0, 1000) : null, ...stampVals, q.id]);
       await conn.query(`UPDATE insurance_quote_requests SET status='declined', closed_at=NOW(), close_reason=? WHERE id=?`, ['Declined by the borrower', r.id]);
       if (wasAccepted) {
         // The chosen quote was dropped without a replacement: the figure is unofficial again.

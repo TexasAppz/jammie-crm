@@ -45,8 +45,12 @@ export async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }));
-    if (res.status === 401 && !path.startsWith('/api/auth/')) {
-      window.dispatchEvent(new Event('jammie:unauthorized'));
+    // 401: no session. 403 "Not allowed for this account type": the one cookie this origin has now
+    // belongs to another portal (someone signed in as a borrower/provider in this browser) — the app
+    // must stop pretending to be signed in rather than fall back to demo data.
+    const wrongRole = res.status === 403 && /not allowed for this account type/i.test(data.error || '');
+    if ((res.status === 401 || wrongRole) && !path.startsWith('/api/auth/')) {
+      window.dispatchEvent(new CustomEvent('jammie:unauthorized', { detail: { status: res.status, wrongRole } }));
     }
     const err = new Error(data.error || res.statusText);
     err.status = res.status;

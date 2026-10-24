@@ -740,7 +740,8 @@ function ScoreBadge({ score }) {
 }
 
 function Toast({ msg, onDone }) {
-  useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t); }, [onDone]);
+  // Longer messages stay up longer (3 s minimum, 10 s maximum).
+  useEffect(() => { const t = setTimeout(onDone, Math.min(10000, Math.max(3000, String(msg || '').length * 60))); return () => clearTimeout(t); }, [onDone, msg]);
   return <div className="toast">{msg}</div>;
 }
 
@@ -5989,7 +5990,12 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge, onGoToTab 
     );
   };
 
-  if (data?.error) return <div style={{ color: '#b91c1c', fontSize: 13 }}>Could not load quotes: {data.error}</div>;
+  if (data?.error) return (
+    <div style={{ color: '#b91c1c', fontSize: 13 }}>Could not load quotes: {data.error}
+      {/^not allowed for this account type/i.test(data.error) && (
+        <div style={{ marginTop: 8, color: 'var(--text-2)' }}>This browser is signed in to the <strong>borrower</strong> (or provider) portal — all three portals share one sign-in per browser. Sign out and sign back in as a loan officer, or open the borrower portal in a private/incognito window instead.</div>
+      )}
+    </div>);
   return (
     <div>
       {renderSection({ type: 'insurance', title: 'Insurance Quote', blurb: 'Homeowners insurance quotes from the providers connected to Jammie. The provider sees only the loan ID, borrower names and the property address.' })}
@@ -6585,17 +6591,20 @@ function MloApp() {
     apiFetch('/api/auth/me').then(u => { if (u && u.type === 'mlo') setMloUser(u); }).catch(() => {}).finally(() => setAuthChecked(true));
   }, []);
   useEffect(() => {
-    const onUnauth = () => setMloUser(null);
+    const onUnauth = (e) => {
+      setMloUser(null);
+      if (e?.detail?.wrongRole) showToast('This browser is now signed in to the borrower or provider portal (all portals share one sign-in per browser). Sign in again as a loan officer — and use a private/incognito window for the other portals.');
+    };
     window.addEventListener('jammie:unauthorized', onUnauth);
     return () => window.removeEventListener('jammie:unauthorized', onUnauth);
-  }, []);
+  }, [showToast]);
   const handleSignOut = async () => {
     try { await apiFetch('/api/auth/logout', { method:'POST' }); } catch {}
     setMloUser(null);
   };
 
   if (!authChecked) return <><GlobalStyles/><div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'var(--text-3)',fontSize:13}}>Loading…</div></>;
-  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser}/><IOSInstallHint/></>;
+  if (!mloUser) return <><GlobalStyles/><MLOLogin onAuthenticated={setMloUser}/><IOSInstallHint/>{toast && <Toast msg={toast} onDone={()=>setToast(null)} />}</>;
 
   const navItems = [
     {id:'dashboard',label:'Dashboard'},
