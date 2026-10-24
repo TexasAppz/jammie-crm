@@ -7,8 +7,9 @@
 // those quotes are valid. Questions go to the loan officer only; insurance
 // agents never get a channel to the borrower and never see this thread.
 
-import { useState, useEffect, useCallback } from "react";
-import { apiFetch, API_URL } from "../shared/api.js";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { apiFetch, API_URL, pollWhileVisible } from "../shared/api.js";
+import { newArrivalCue, countNew } from "../shared/cue.js";
 
 const money = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const when = d => d ? new Date(d).toLocaleString() : '';
@@ -33,8 +34,17 @@ export default function Quotes({ loanId, user, onExit, showToast }) {
   const [reason, setReason] = useState('');
   const [drafts, setDrafts] = useState({});
 
-  const load = useCallback(() => apiFetch(`/api/apply-quotes/${loanId}`).then(d => { setData(d); setErr(''); }).catch(e => setErr(e.message)), [loanId]);
-  useEffect(load, [load]);
+  // Chime + tab-title flash when the loan officer replies or a new quote arrives (never on the first load).
+  const seen = useRef(null);   // { msgs: [ids], quotes: [ids] }
+  const load = useCallback(() => apiFetch(`/api/apply-quotes/${loanId}`).then(d => {
+    const msgs = d.requests.flatMap(r => (r.messages || []).filter(m => m.sender_type === 'mlo').map(m => m.id));
+    const quotes = d.requests.flatMap(r => r.quotes.map(q => q.id));
+    const n = countNew(seen.current?.msgs, msgs) + countNew(seen.current?.quotes, quotes);
+    if (n) newArrivalCue({ count: n });
+    seen.current = { msgs, quotes };
+    setData(d); setErr('');
+  }).catch(e => setErr(e.message)), [loanId]);
+  useEffect(() => pollWhileVisible(load, 5000), [load]);   // live: new quotes, replies and status changes show without a refresh
 
   const decide = async () => {
     if (!confirm) return;

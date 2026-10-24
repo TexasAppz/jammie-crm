@@ -55,3 +55,17 @@ export async function apiFetch(path, options = {}) {
   }
   return res.json();
 }
+
+/**
+ * Call `fn` now and every `ms` while the page is visible, every `ms * 2` while it is in a background
+ * tab (so a chime / title flash can still announce a new message), and immediately when the tab is
+ * shown again. Returns the cleanup for useEffect.
+ */
+export function pollWhileVisible(fn, ms = 5000) {
+  let timer = null;
+  const start = () => { clearInterval(timer); timer = setInterval(fn, document.visibilityState === 'visible' ? ms : ms * 2); };
+  const onVis = () => { if (document.visibilityState === 'visible') fn(); start(); };
+  fn(); start();
+  document.addEventListener('visibilitychange', onVis);
+  return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVis); };
+}

@@ -6,8 +6,10 @@
  *   newQuoteToBorrowers(...)   provider submitted/revised: tell every borrower on the loan
  *   decision(...)              borrower (or MLO on their behalf) accepted/declined:
  *                              winner "Accepted by borrower", others "Not selected", MLO summary
- *   borrowerMessageToMlo(...)  borrower asked a question on a quote
- *   mloMessageToBorrowers(...) MLO answered in the borrower thread
+ *   borrowerMessageToMlo(...)  borrower asked a question on a quote        ┐ chat is live in all three portals,
+ *   mloMessageToBorrowers(...) MLO answered in the borrower thread           │ so message e-mails are OFF unless
+ *   mloMessageToProvider(...)  MLO wrote to the agent                        │ QUOTE_MESSAGE_EMAILS=1 is set in .env
+ *   providerMessageToMlo(...)  agent wrote to the MLO                        ┘ (requests, quotes and decisions still e-mail)
  */
 const db    = require('../db.cjs');
 const Q     = require('./quotes.cjs');
@@ -18,6 +20,7 @@ const portalUrl   = () => `${email.BASE_URL()}/insurance`;
 const crmUrl      = loanId => `${email.BASE_URL()}/?loan=${loanId}&tab=quotes`;
 const borrowerUrl = loanId => `${email.BASE_URL()}/apply/loan/${loanId}/quotes`;
 const quiet = p => p && p.catch ? p.catch(() => {}) : p;
+const MESSAGE_EMAILS = () => process.env.QUOTE_MESSAGE_EMAILS === '1';
 
 async function providerOf(id) { const [[p]] = await db.query('SELECT id, name, notification_email FROM insurance_providers WHERE id=?', [id]); return p || null; }
 async function mloOf(loanId) {
@@ -83,6 +86,7 @@ async function decision({ loanId, decisionType, result, by }) {
 }
 
 async function borrowerMessageToMlo({ loanId, request, body, borrowerName }) {
+  if (!MESSAGE_EMAILS()) return;
   const mlo = await mloOf(loanId);
   if (!mlo?.email) return;
   quiet(email.sendNotice({ to: mlo.email, type: 'borrower_quote_message', loanId, subject: `${borrowerName} asked about quote request ${request.request_no}`,
@@ -91,6 +95,7 @@ async function borrowerMessageToMlo({ loanId, request, body, borrowerName }) {
 }
 
 async function mloMessageToBorrowers({ loanId, request, body, mloName }) {
+  if (!MESSAGE_EMAILS()) return;
   const people = await Q.borrowerAccounts(loanId);
   for (const b of people) {
     quiet(email.sendNotice({ to: b.email, type: 'mlo_quote_message', loanId, subject: `${mloName} replied about your insurance quote`,
@@ -98,4 +103,19 @@ async function mloMessageToBorrowers({ loanId, request, body, mloName }) {
   }
 }
 
-module.exports = { newQuoteToBorrowers, decision, borrowerMessageToMlo, mloMessageToBorrowers, borrowerUrl, crmUrl, portalUrl };
+async function mloMessageToProvider({ loanId, request, body, mlo }) {
+  if (!MESSAGE_EMAILS()) return;
+  const p = await providerOf(request.provider_id);
+  if (!p?.notification_email) return;
+  quiet(email.sendNotice({ to: p.notification_email, type: 'quote_message', loanId, subject: `Message on ${request.request_no} from ${mlo?.name || 'the loan officer'}`,
+    title: `New message on ${request.request_no}`, lines: [`${mlo?.name || 'The loan officer'} wrote:`, body], buttonLabel: 'Reply in the quote portal', buttonUrl: portalUrl(), replyTo: mlo?.email }));
+}
+
+async function providerMessageToMlo({ loanId, request, body, agentName, providerName, mloEmail, replyTo }) {
+  if (!MESSAGE_EMAILS()) return;
+  if (!mloEmail) return;
+  quiet(email.sendNotice({ to: mloEmail, type: 'quote_message', loanId, subject: `Message on ${request.request_no} from ${providerName}`,
+    title: `New message on ${request.request_no}`, lines: [`${agentName} (${providerName}) wrote:`, body], buttonLabel: 'Reply in the loan\'s Quotes tab', buttonUrl: crmUrl(loanId), replyTo }));
+}
+
+module.exports = { newQuoteToBorrowers, decision, borrowerMessageToMlo, mloMessageToBorrowers, mloMessageToProvider, providerMessageToMlo, borrowerUrl, crmUrl, portalUrl, MESSAGE_EMAILS };

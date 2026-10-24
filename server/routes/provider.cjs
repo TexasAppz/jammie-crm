@@ -117,8 +117,7 @@ router.post('/requests/:id/messages', async (req, res) => {
     if (!body) return res.status(422).json({ error: 'Message is empty' });
     await db.query('INSERT INTO quote_messages SET ?', { request_id: r.id, sender_type: 'provider', sender_id: req.user.id, sender_name: `${who(req).name} (${req.user.providerName})`, body });
     const out = await Q.requestView(r, { side: 'provider', withMessages: true });
-    if (out.mlo?.email) email.sendNotice({ to: out.mlo.email, type: 'quote_message', loanId: r.loan_id, subject: `Message on ${r.request_no} from ${req.user.providerName}`,
-      title: `New message on ${r.request_no}`, lines: [`${who(req).name} (${req.user.providerName}) wrote:`, body], buttonLabel: 'Reply in the loan\'s Quotes tab', buttonUrl: crmUrl(r.loan_id), replyTo: who(req).email }).catch(() => {});
+    notify.providerMessageToMlo({ loanId: r.loan_id, request: r, body, agentName: who(req).name, providerName: req.user.providerName, mloEmail: out.mlo?.email, replyTo: who(req).email }).catch(() => {});   // e-mail only if QUOTE_MESSAGE_EMAILS=1
     res.status(201).json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

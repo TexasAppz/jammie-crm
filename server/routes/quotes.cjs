@@ -134,9 +134,7 @@ router.post('/request/:id/messages', async (req, res) => {
     const body = String(req.body?.body || '').trim().slice(0, 4000);
     if (!body) return res.status(422).json({ error: 'Message is empty' });
     await db.query('INSERT INTO quote_messages SET ?', { request_id: r.id, sender_type: 'mlo', sender_id: req.user?.id || null, sender_name: who(req).name || who(req).email, body });
-    const [[p]] = await db.query('SELECT name, notification_email FROM insurance_providers WHERE id=?', [r.provider_id]);
-    if (p?.notification_email) email.sendNotice({ to: p.notification_email, type: 'quote_message', loanId: r.loan_id, subject: `Message on ${r.request_no} from ${who(req).name || 'the loan officer'}`,
-      title: `New message on ${r.request_no}`, lines: [`${who(req).name || 'The loan officer'} wrote:`, body], buttonLabel: 'Reply in the quote portal', buttonUrl: portalUrl(), replyTo: who(req).email }).catch(() => {});
+    notify.mloMessageToProvider({ loanId: r.loan_id, request: r, body, mlo: who(req) }).catch(() => {});   // e-mail only if QUOTE_MESSAGE_EMAILS=1 (chat is live)
     res.status(201).json(await Q.requestView(r, { side: 'mlo', withMessages: true }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

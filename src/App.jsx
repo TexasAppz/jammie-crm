@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
-import { API_URL, checkApi, apiFetch } from "./shared/api.js";
+import { API_URL, checkApi, apiFetch, pollWhileVisible } from "./shared/api.js";
+import { newArrivalCue, countNew } from "./shared/cue.js";
 
 // The borrower portal (/apply/*) is its own chunk: MLOs never download it,
 // borrowers never download the CRM.
@@ -2724,8 +2725,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   ];
   const [activeTab, setActiveTab] = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'quotes' ? 'quotes' : 'loan'));
   const [quotesBadge, setQuotesBadge] = useState(0);
-  // Badge for the Quotes tab: new quotes + unread provider messages (one call per loan open).
-  useEffect(() => { if (loan?.id) apiFetch(`/api/quotes/loan/${loan.id}`).then(d => setQuotesBadge(d.badge || 0)).catch(() => {}); }, [loan?.id]);
+  // Badge for the Quotes tab: new quotes + unread messages. Refreshed every 20 s while the loan is open
+  // (the Quotes tab itself polls faster and keeps the badge in step through onBadge).
+  useEffect(() => { if (!loan?.id) return; return pollWhileVisible(() => apiFetch(`/api/quotes/loan/${loan.id}`).then(d => setQuotesBadge(d.badge || 0)).catch(() => {}), 20000); }, [loan?.id]);
   const [loanSubTab, setLoanSubTab] = useState('loan');
   const [borrowerSubTab, setBorrowerSubTab] = useState('basic');
 
@@ -5718,14 +5720,28 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge, onGoToTab 
   const [hideReason, setHideReason] = useState('');
   const [bdrafts, setBdrafts] = useState({});           // request id -> reply to the borrower being typed
   const [unlockOpen, setUnlockOpen] = useState(false); const [unlockReason, setUnlockReason] = useState('');
+  const seen = useRef(null);   // ids already on screen: provider messages, borrower messages, quotes — for the arrival chime
 
   const load = useCallback(() => {
     if (!loan?.id) return;
     apiFetch(`/api/quotes/loan/${loan.id}`).then(async d => {
+      // Chime (+ tab-title flash) for anything that arrived since the last poll — not on the first load.
+      const pm = (d.requests || []).flatMap(r => (r.messages || []).filter(m => m.sender_type === 'provider').map(m => m.id));
+      const bm = (d.requests || []).flatMap(r => (r.borrower_messages || []).filter(m => m.sender_type === 'borrower').map(m => m.id));
+      const qs = (d.requests || []).flatMap(r => (r.quotes || []).map(q => `${q.id}:${q.status}`));
+      const n = countNew(seen.current?.pm, pm) + countNew(seen.current?.bm, bm) + countNew(seen.current?.qs, qs);
+      if (n) newArrivalCue({ count: n });
+      seen.current = { pm, bm, qs };
       setData(d); onBadge && onBadge(d.badge || 0);
       // Threads are always on screen, so provider messages count as read as soon as the tab shows them.
       // The estimate may have been filled in server-side: keep the editor's HOI field in step (unless the MLO typed one).
-      if (d.hoi && d.hoi.amount != null) setFormData(p => (String(p.pmt_hoi || '') !== String(d.hoi.amount) && (d.hoi.locked || !p.pmt_hoi || d.hoi.source !== 'manual')) ? { ...p, pmt_hoi: String(d.hoi.amount), hoiMeta: d.hoi } : { ...p, hoiMeta: d.hoi });
+      // Only touch formData when something actually changed — this runs every few seconds while the tab is open.
+      if (d.hoi && d.hoi.amount != null) setFormData(p => {
+        const metaChanged = JSON.stringify(p.hoiMeta || null) !== JSON.stringify(d.hoi);
+        const takeAmount = String(p.pmt_hoi || '') !== String(d.hoi.amount) && (d.hoi.locked || !p.pmt_hoi || d.hoi.source !== 'manual');
+        if (!metaChanged && !takeAmount) return p;
+        return takeAmount ? { ...p, pmt_hoi: String(d.hoi.amount), hoiMeta: d.hoi } : { ...p, hoiMeta: d.hoi };
+      });
       const unread = (d.requests || []).filter(r => r.messages_unread > 0 || r.borrower_messages_unread > 0);
       if (unread.length) {
         await Promise.all(unread.map(r => Promise.all([
@@ -5738,7 +5754,8 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge, onGoToTab 
     }).catch(e => { setData({ error: e.message, requests: [] }); });
     apiFetch('/api/quotes/providers').then(p => { setProviders(p); setPicked(x => Object.keys(x).length ? x : Object.fromEntries(p.map(q => [q.id, true]))); }).catch(() => setProviders([]));
   }, [loan?.id]);
-  useEffect(load, [load]);
+  // Live: provider/borrower messages, new quotes and decisions appear without a refresh (paused in background tabs).
+  useEffect(() => pollWhileVisible(load, 5000), [load]);
 
   const requests = data?.requests || [];
   const byType = t => requests.filter(r => r.quote_type === t);

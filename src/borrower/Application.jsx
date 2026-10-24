@@ -198,25 +198,50 @@ function FieldsGrid({ fields, obj, ctx, onChange, showErrors, readOnly }) {
   );
 }
 
+/**
+ * "Real estate you own" can start from the address the borrower gave on "Where you live" —
+ * no retyping when they own the home they live in. Only offered when that address is complete
+ * and they said they own it (renters have nothing to copy).
+ */
+function homePrefill(form) {
+  const b = form?.borrower || {};
+  if (!b.address_street || !b.address_city || !b.address_state) return null;
+  if (b.housing && b.housing !== 'Own') return null;
+  const values = { addr1: b.address_street, city: b.address_city, state: b.address_state, zip: b.address_zip || '', occupancy: 'Primary Residence' };
+  return { label: 'Same as where I live', values, summary: [b.address_street, b.address_city, [b.address_state, b.address_zip].filter(Boolean).join(' ')].filter(Boolean).join(', ') };
+}
+
 /** Repeating entries (incomes, assets, …) with add / remove. */
-function ListEditor({ step, entries, onChange, showErrors, none, onNone, readOnly }) {
-  const add = () => {
+function ListEditor({ step, entries, onChange, showErrors, none, onNone, readOnly, prefill }) {
+  // prefill = { label, values, summary } — e.g. the home the borrower lives in, for "Real estate you own"
+  const add = (values) => {
     const e = { id: Date.now() };
     for (const f of step.entryFields) if (f.defaultValue !== undefined) e[f.key] = f.defaultValue;
-    onChange([...entries, e]);
+    onChange([...entries, { ...e, ...(values || {}) }]);
   };
   const upd = (i, k, v) => onChange(entries.map((e, j) => j === i ? { ...e, [k]: v } : e));
+  const fill = (i, values) => onChange(entries.map((e, j) => j === i ? { ...e, ...values } : e));
   const del = i => onChange(entries.filter((_, j) => j !== i));
+  const same = (e) => prefill && Object.keys(prefill.values).every(k => String(e[k] || '').trim().toLowerCase() === String(prefill.values[k] || '').trim().toLowerCase());
+  const alreadyAdded = prefill && entries.some(same);
   return (
     <>
       {entries.map((e, i) => (
         <div key={e.id ?? i} className="ap-entry">
           <div className="ap-entry-hdr"><span>{step.entryName} {entries.length > 1 ? i + 1 : ''}</span>
-            {!readOnly && <button className="ap-btn" style={{ padding: '6px 12px', fontSize: 13, color: '#b91c1c' }} onClick={() => del(i)}>Remove</button>}</div>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {!readOnly && prefill && !same(e) && !alreadyAdded && <button className="ap-btn" style={{ padding: '6px 12px', fontSize: 13, color: '#2563EB', borderColor: '#93c5fd' }} onClick={() => fill(i, prefill.values)} title={prefill.summary}>{prefill.label}</button>}
+              {!readOnly && <button className="ap-btn" style={{ padding: '6px 12px', fontSize: 13, color: '#b91c1c' }} onClick={() => del(i)}>Remove</button>}
+            </span></div>
           <FieldsGrid fields={step.entryFields} obj={e} ctx={e} onChange={(k, v) => upd(i, k, v)} showErrors={showErrors} readOnly={readOnly} />
         </div>
       ))}
-      {!readOnly && <button className="ap-add" onClick={add}>+ Add {entries.length ? 'another' : 'a'} {step.entryName}</button>}
+      {!readOnly && prefill && !alreadyAdded && entries.length === 0 && (
+        <button className="ap-add" style={{ marginBottom: 10, borderStyle: 'solid', background: '#eff6ff' }} onClick={() => add(prefill.values)} title={prefill.summary}>
+          <span>🏠 {prefill.label}</span><span style={{ fontWeight: 400, color: '#4b5563', fontSize: 13 }}>— {prefill.summary}</span>
+        </button>
+      )}
+      {!readOnly && <button className="ap-add" onClick={() => add()}>+ Add {entries.length ? 'another' : 'a'} {step.entryName}</button>}
       {step.noneLabel && entries.length === 0 && !readOnly && (
         <label className={`ap-chip${none ? ' on' : ''}`} style={{ marginTop: 14, width: '100%' }}><input type="checkbox" checked={!!none} onChange={e => onNone(e.target.checked)} /> {step.noneLabel}</label>
       )}
@@ -449,7 +474,8 @@ export default function Application({ loanId, user, onExit, showToast }) {
         </>;
       case 'list':
         return <ListEditor step={step} entries={form.lists[step.list] || []} onChange={v => setList(step.list, v)} showErrors={showErrors[step.id]}
-          none={form.flags[`none_${step.list}`]} onNone={v => setFlag(`none_${step.list}`, v)} readOnly={locked} />;
+          none={form.flags[`none_${step.list}`]} onNone={v => setFlag(`none_${step.list}`, v)} readOnly={locked}
+          prefill={step.list === 'reos' ? homePrefill(form) : null} />;
       case 'declarations':
         return <DeclarationsEditor data={form.declarations || {}} onChange={setDecl} showErrors={showErrors[step.id]} readOnly={locked} />;
       case 'demographics':

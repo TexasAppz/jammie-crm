@@ -11,7 +11,8 @@
 //   /insurance/request/:id      one request: shared details, market estimate, quote form, messages
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { apiFetch, API_URL } from "../shared/api.js";
+import { apiFetch, API_URL, pollWhileVisible } from "../shared/api.js";
+import { newArrivalCue, countNew } from "../shared/cue.js";
 
 const PATH = () => window.location.pathname.replace(/\/+$/, '') || '/';
 const go = (path) => { window.history.pushState({}, '', path); window.dispatchEvent(new Event('popstate')); };
@@ -74,11 +75,18 @@ function Login({ onSignedIn }) {
 const TABS = [['new', 'New'], ['viewed', 'Viewed'], ['quoted', 'Quoted'], ['decided', 'Decided'], ['expired', 'Expired']];
 function Inbox({ user, onOpen }) {
   const [tab, setTab] = useState('new'); const [rows, setRows] = useState(null); const [summary, setSummary] = useState(null);
+  const seenCounts = useRef(null);   // { new, unread } from the previous poll
   const load = useCallback(() => {
-    apiFetch('/api/provider/summary').then(setSummary).catch(() => {});
+    apiFetch('/api/provider/summary').then(sm => {
+      const c = sm?.counts || {}; const prev = seenCounts.current;
+      // A new request or an unread message from a loan officer since the last poll: chime.
+      if (prev && ((c.new || 0) > prev.new || (c.unread_messages || 0) > prev.unread)) newArrivalCue({ count: Math.max(1, (c.new || 0) - prev.new + (c.unread_messages || 0) - prev.unread) });
+      seenCounts.current = { new: c.new || 0, unread: c.unread_messages || 0 };
+      setSummary(sm);
+    }).catch(() => {});
     apiFetch(`/api/provider/requests?status=${tab}`).then(setRows).catch(() => setRows([]));
   }, [tab]);
-  useEffect(load, [load]);
+  useEffect(() => pollWhileVisible(load, 8000), [load]);   // new requests and messages show up on their own
   const counts = summary?.counts || {};
   return (
     <div className="b-body" style={{ maxWidth: 1100 }}>
@@ -128,8 +136,13 @@ function RequestPage({ id, user, showToast }) {
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(''); const [unable, setUnable] = useState(null);
   // Later responses (messages, submit) carry no estimate/defaults — keep the ones from the first load.
   const setR = (next) => setRaw(prev => (next ? { ...next, estimate: next.estimate ?? prev?.estimate ?? null, defaults: next.defaults ?? prev?.defaults ?? null } : next));
-  const load = useCallback(() => apiFetch(`/api/provider/requests/${id}`).then(setR).catch(e => setErr(e.message)), [id]);
-  useEffect(load, [load]);
+  const seenMsgs = useRef(null);
+  const load = useCallback(() => apiFetch(`/api/provider/requests/${id}`).then(v => {
+    const ids = (v.messages || []).filter(m => m.sender_type === 'mlo').map(m => m.id);
+    const n = countNew(seenMsgs.current, ids); if (n) newArrivalCue({ count: n });   // the loan officer wrote
+    seenMsgs.current = ids; setR(v);
+  }).catch(e => setErr(e.message)), [id]);
+  useEffect(() => pollWhileVisible(load, 5000), [load]);   // live thread + status (the agent's draft and form are separate state)
   // Pre-fill once per request from the market estimate (or the quote being revised) — the agent's numbers win from then on.
   const prefilled = useRef(null);
   useEffect(() => {
