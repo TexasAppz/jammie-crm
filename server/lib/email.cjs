@@ -124,4 +124,16 @@ async function sendInvite({ to, loanId, borrowerFirst, mlo, token, expiresDays =
   return send({ to, type: 'invite', loanId, ...t, replyTo: mlo.email, link: inviteUrl });
 }
 
-module.exports = { send, sendInvite, isDryRun, BASE_URL };
+/**
+ * Generic notice (quote portal and other short notifications): a title, a few
+ * lines, an optional button. Keeps the same layout as the invite e-mail.
+ */
+async function sendNotice({ to, type, loanId = null, subject, title, lines = [], buttonLabel, buttonUrl, replyTo, footer }) {
+  const bodyHtml = lines.map(l => `<p style="margin:0 0 10px;font-size:15px;line-height:1.5">${esc(l)}</p>`).join('')
+    + (buttonUrl ? button(buttonUrl, buttonLabel || 'Open') : '');
+  const html = layout({ title, bodyHtml, footerHtml: footer ? esc(footer) : 'You are receiving this because you are a user of the Jammie Mortgage platform.' });
+  const text = [title, '', ...lines, buttonUrl ? `\n${buttonLabel || 'Open'}: ${buttonUrl}` : ''].join('\n');
+  return send({ to, type, loanId, subject: subject || title, html, text, replyTo, link: buttonUrl });
+}
+
+module.exports = { send, sendInvite, sendNotice, isDryRun, BASE_URL };

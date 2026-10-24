@@ -58,7 +58,8 @@ const PUBLIC = [
 ];
 
 const ROLE_BY_PREFIX = [
-  ['/api/apply', ['borrower']],
+  ['/api/apply',    ['borrower']],
+  ['/api/provider', ['provider']],   // insurance/title quote portal — nothing else is reachable with a provider session
 ];
 const DEFAULT_ROLES = ['mlo'];
 
@@ -93,6 +94,21 @@ function publicUser(row) {
   };
 }
 
+function publicProvider(row) {
+  return {
+    type: 'provider',
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    name: row.display_name || row.username,
+    initials: initials(...String(row.display_name || row.username || '?').split(/\s+/)),
+    providerId: row.provider_id,
+    providerCode: row.provider_code,
+    providerName: row.provider_name,
+    quoteTypes: String(row.quote_types || 'insurance').split(',').map(x => x.trim()).filter(Boolean),
+  };
+}
+
 function publicBorrower(row) {
   return {
     type: 'borrower',
@@ -124,7 +140,7 @@ function validateNewPassword(p) {
 // ── sessions ────────────────────────────────────────────────────────────
 async function createSession(req, res, userType, userId) {
   const token   = newToken();
-  const ttl     = userType === 'mlo' ? MLO_TTL_MS : BORROWER_TTL_MS;
+  const ttl     = userType === 'borrower' ? BORROWER_TTL_MS : MLO_TTL_MS;   // MLO and provider sessions: 12 h
   const expires = new Date(Date.now() + ttl);
   await db.query('INSERT INTO sessions SET ?', {
     user_type: userType, user_id: userId, token_hash: sha256(token),
@@ -169,6 +185,11 @@ async function resolveSession(req) {
   } else if (s.user_type === 'borrower') {
     const [u] = await db.query('SELECT id, email, first_nm, last_nm, preferred_lang, is_active FROM borrower_users WHERE id=?', [s.user_id]);
     if (u[0] && u[0].is_active) user = publicBorrower(u[0]);
+  } else if (s.user_type === 'provider') {
+    const [u] = await db.query(
+      `SELECT u.id, u.username, u.email, u.display_name, u.is_active, u.provider_id, p.code AS provider_code, p.name AS provider_name, p.quote_types, p.is_active AS provider_active
+         FROM provider_users u JOIN insurance_providers p ON p.id=u.provider_id WHERE u.id=?`, [s.user_id]);
+    if (u[0] && u[0].is_active && u[0].provider_active) user = publicProvider(u[0]);
   }
   if (!user) return null;
 
@@ -239,6 +260,6 @@ function install(app) {
 module.exports = {
   install, authenticate, requireRole, requireSession, loginLimiter,
   createSession, destroySession, destroyOtherSessions, resolveSession,
-  hashPassword, verifyPassword, validateNewPassword, publicUser, publicBorrower,
+  hashPassword, verifyPassword, validateNewPassword, publicUser, publicBorrower, publicProvider,
   COOKIE_NAME,
 };

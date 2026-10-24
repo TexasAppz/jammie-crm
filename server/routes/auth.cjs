@@ -25,22 +25,27 @@ router.post('/login', auth.loginLimiter, async (req, res) => {
     const password = String(req.body?.password || '');
     if (!login || !password) return res.status(400).json({ error: 'Email/username and password are required' });
 
-    // role: 'mlo' (default) or 'borrower'. Borrowers sign in by email only.
-    const role = req.body?.role === 'borrower' ? 'borrower' : 'mlo';
+    // role: 'mlo' (default), 'borrower' (email only) or 'provider' (quote portal: username or email).
+    const role = ['borrower', 'provider'].includes(req.body?.role) ? req.body.role : 'mlo';
     const [rows] = role === 'mlo'
       ? await db.query('SELECT * FROM mlo_users WHERE LOWER(email)=? OR LOWER(username)=? LIMIT 1', [login, login])
-      : await db.query('SELECT * FROM borrower_users WHERE LOWER(email)=? LIMIT 1', [login]);
+      : role === 'provider'
+        ? await db.query(`SELECT u.*, p.code AS provider_code, p.name AS provider_name, p.quote_types, p.is_active AS provider_active
+                            FROM provider_users u JOIN insurance_providers p ON p.id=u.provider_id
+                           WHERE LOWER(u.username)=? OR LOWER(u.email)=? LIMIT 1`, [login, login])
+        : await db.query('SELECT * FROM borrower_users WHERE LOWER(email)=? LIMIT 1', [login]);
     const u = rows[0];
 
     // Always run a compare so timing is the same for unknown accounts.
     const ok = await auth.verifyPassword(password, u ? u.password_hash : '$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv');
     if (!u || !ok || !u.is_active) return res.status(401).json({ error: GENERIC_FAIL });
 
+    if (role === 'provider' && !u.provider_active) return res.status(401).json({ error: GENERIC_FAIL });
     await auth.createSession(req, res, role, u.id);
-    const table = role === 'mlo' ? 'mlo_users' : 'borrower_users';
+    const table = role === 'mlo' ? 'mlo_users' : role === 'provider' ? 'provider_users' : 'borrower_users';
     db.query(`UPDATE ${table} SET last_login_at=NOW() WHERE id=?`, [u.id]).catch(() => {});
     // Same shape /me returns, so the client never special-cases login vs reload.
-    res.json(role === 'mlo' ? auth.publicUser(u) : auth.publicBorrower(u));
+    res.json(role === 'mlo' ? auth.publicUser(u) : role === 'provider' ? auth.publicProvider(u) : auth.publicBorrower(u));
   } catch (e) {
     console.error('[auth] login error:', e.message);
     res.status(500).json({ error: 'Sign-in failed' });
@@ -61,7 +66,7 @@ router.get('/me', auth.requireSession, (req, res) => {
 // POST /api/auth/change-password  { currentPassword, newPassword }
 router.post('/change-password', auth.requireSession, async (req, res) => {
   try {
-    const table = req.user.type === 'mlo' ? 'mlo_users' : 'borrower_users';
+    const table = req.user.type === 'mlo' ? 'mlo_users' : req.user.type === 'provider' ? 'provider_users' : 'borrower_users';
     const { currentPassword, newPassword } = req.body || {};
     const problem = auth.validateNewPassword(newPassword);
     if (problem) return res.status(422).json({ error: problem });

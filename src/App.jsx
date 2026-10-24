@@ -5,6 +5,8 @@ import { API_URL, checkApi, apiFetch } from "./shared/api.js";
 // The borrower portal (/apply/*) is its own chunk: MLOs never download it,
 // borrowers never download the CRM.
 const BorrowerApp = lazy(() => import("./borrower/BorrowerApp.jsx"));
+// The quote portal (/insurance/*) for insurance and title providers — also its own chunk.
+const InsuranceApp = lazy(() => import("./insurance/InsuranceApp.jsx"));
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL STYLES
@@ -346,6 +348,10 @@ const GlobalStyles = () => (
 
     /* ── MOBILE RESPONSIVE ─────────────────────────────────────── */
     /* iPad (768px) and iPhone (375px) */
+
+    /* Seven 1003 tabs: the tab-name caption on the right only fits on wide screens */
+    .f1003-tablabel { white-space: nowrap; }
+    @media (max-width: 1440px) { .f1003-tablabel { display: none; } .f1003-maintab { padding-left: 16px !important; padding-right: 16px !important; } }
 
     @media (max-width: 1024px) {
       .dash-grid { grid-template-columns: repeat(2,1fr); gap: 12px; }
@@ -2698,8 +2704,12 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     { id:'pricing',   label:'Product & Pricing', icon:'🏷️' },
     { id:'fees',      label:'Review Fees',       icon:'📋' },
     { id:'documents', label:'Documents',         icon:'📁' },
+    { id:'quotes',    label:'Quotes',            icon:'🧾' },
   ];
-  const [activeTab, setActiveTab] = useState('loan');
+  const [activeTab, setActiveTab] = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'quotes' ? 'quotes' : 'loan'));
+  const [quotesBadge, setQuotesBadge] = useState(0);
+  // Badge for the Quotes tab: new quotes + unread provider messages (one call per loan open).
+  useEffect(() => { if (loan?.id) apiFetch(`/api/quotes/loan/${loan.id}`).then(d => setQuotesBadge(d.badge || 0)).catch(() => {}); }, [loan?.id]);
   const [loanSubTab, setLoanSubTab] = useState('loan');
   const [borrowerSubTab, setBorrowerSubTab] = useState('basic');
 
@@ -2808,6 +2818,26 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     } catch (err) {
       showToast(`⚠ Export failed: ${err.message}`);
     }
+  };
+
+  // Export dialog: the export itself plus the optional insurance-quote request (same endpoint the Quotes tab uses).
+  const [exportDialog, setExportDialog] = useState(false);
+  const [exportAlsoQuote, setExportAlsoQuote] = useState(false);
+  const [exportDisclosed, setExportDisclosed] = useState(false);
+  const [exportProviders, setExportProviders] = useState([]);
+  useEffect(() => { if (exportDialog) apiFetch('/api/quotes/providers').then(setExportProviders).catch(()=>setExportProviders([])); }, [exportDialog]);
+  const runExport = async () => {
+    setExportDialog(false);
+    await handleExportMismo();
+    if (exportAlsoQuote && exportProviders.length) {
+      try {
+        const r = await apiFetch(`/api/quotes/request/${loan.id}`, { method:'POST', body:{ providerIds: exportProviders.map(p=>p.id), disclosed: exportDisclosed } });
+        const made = r.results.filter(x=>x.created).map(x=>`${x.provider.name} (${x.request_no})`);
+        showToast(made.length ? `✓ Insurance quote request sent to ${made.join(', ')}` : 'Insurance quote: a request is already open');
+        setQuotesBadge(b=>b);
+      } catch (e) { const d = e.data || {}; showToast('⚠ Insurance quote request: ' + (d.error || e.message) + (d.problems ? ': ' + d.problems.join(', ') : '')); }
+    }
+    setExportAlsoQuote(false); setExportDisclosed(false);
   };
 
   const handleMismoFileSelected = (file) => {
@@ -3079,12 +3109,13 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
               background:'none',border:'none',borderTop:'none',borderLeft:'none',borderRight:'none',
               cursor:'pointer',display:'flex',alignItems:'center',gap:7,transition:'all .15s',whiteSpace:'nowrap'}}>
             <span>{t.icon}</span>{t.label}
+            {t.id==='quotes' && quotesBadge>0 && <span style={{background:'#b91c1c',color:'#fff',borderRadius:10,padding:'0 7px',fontSize:11,fontWeight:700,marginLeft:2}}>{quotesBadge}</span>}
             {activeTab===t.id && <span style={{width:7,height:7,borderRadius:'50%',background:'var(--accent)',marginLeft:2}}/>}
           </button>
         ))}
         <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
-          <span style={{fontSize:13,color:'var(--text-3)'}}>
-            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':activeTab==='financial'?'Financial Information':activeTab==='pricing'?'Product & Pricing':activeTab==='fees'?'Review Fees':'Documents'}
+          <span className="f1003-tablabel" style={{fontSize:13,color:'var(--text-3)'}}>
+            {activeTab==='loan'?'Loan & Property Info':activeTab==='borrower'?'Borrower Information':activeTab==='financial'?'Financial Information':activeTab==='pricing'?'Product & Pricing':activeTab==='fees'?'Review Fees':activeTab==='quotes'?'Insurance & Title Quotes':'Documents'}
           </span>
         </div>
       </div>
@@ -4039,6 +4070,11 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         {/* ════════════════════════════
             TAB 5 — DOCUMENTS
         ════════════════════════════ */}
+        {/* ════════════════════════════
+            TAB 7 — QUOTES (insurance now, title next)
+        ════════════════════════════ */}
+        {activeTab==='quotes' && <QuotesTab loan={loan} formData={formData} setFormData={setFormData} showToast={showToast} onBadge={setQuotesBadge}/>}
+
         {activeTab==='documents' && <>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
             <span style={{fontSize:22,fontWeight:700,color:'var(--text)'}}>Documents</span>
@@ -4049,7 +4085,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                 onClick={() => mismoImportRef.current?.click()}>
                 {importingMismo ? '⏳ Importing…' : '⬆ Import MISMO 3.4'}
               </button>
-              <button className="btn btn-secondary" onClick={handleExportMismo}>
+              <button className="btn btn-secondary" onClick={()=>setExportDialog(true)}>
                 ⬇ Export MISMO 3.4
               </button>
               <input ref={fileUploadRef} type="file" multiple style={{display:'none'}}
@@ -4110,6 +4146,26 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {exportDialog && (
+            <div className="modal-overlay" onClick={() => setExportDialog(false)}>
+              <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <span className="modal-title">Export MISMO 3.4</span>
+                  <button className="modal-close" onClick={() => setExportDialog(false)}>×</button>
+                </div>
+                <div className="modal-body" style={{fontSize:13}}>
+                  <div style={{marginBottom:12}}>Downloads the MISMO 3.4 XML for loan <strong>{loan.loan_number}</strong> (ARIVE / DU).</div>
+                  <label className="check-row" style={{fontWeight:600}}><input type="checkbox" checked={exportAlsoQuote} onChange={e=>setExportAlsoQuote(e.target.checked)} disabled={!exportProviders.length}/> Also request insurance quotes{exportProviders.length ? ` from ${exportProviders.map(p=>p.name).join(', ')}` : ' (no providers configured)'}</label>
+                  {exportAlsoQuote && <label className="check-row" style={{marginTop:8,alignItems:'flex-start'}}><input type="checkbox" checked={exportDisclosed} onChange={e=>setExportDisclosed(e.target.checked)} style={{marginTop:3}}/> <span>The borrower has been informed that their name and property address will be shared with insurance providers so that quotes can be prepared. <span style={{color:'var(--text-3)'}}>Only the loan ID, borrower names and property address are sent.</span></span></label>}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" onClick={() => setExportDialog(false)}>Cancel</button>
+                  <button className="btn btn-primary" disabled={exportAlsoQuote && !exportDisclosed} onClick={runExport}>⬇ Export{exportAlsoQuote ? ' + request quotes' : ''}</button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -4275,7 +4331,14 @@ function LoansPage({ showToast, currentUser }) {
   const [confirmDel, setConfirmDel] = useState(null);
   const [open1003, setOpen1003] = useState(null); // loan object when 1003 is open
 
-  useEffect(() => { db.loans.getAll().then(setLoans); }, []);
+  useEffect(() => {
+    db.loans.getAll().then(ls => {
+      setLoans(ls);
+      // Links in notification e-mails: /?loan=<id>&tab=quotes
+      const want = Number(new URLSearchParams(window.location.search).get('loan'));
+      if (want) { const l = (ls || []).find(x => x.id === want); if (l) setOpen1003(l); }
+    });
+  }, []);
 
   const filtered = useMemo(() => {
     let r = [...loans];
@@ -5602,6 +5665,198 @@ function CreditPanel({ loan, borrowers, formData, setFormData, showToast }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// QUOTES TAB — insurance (and later title) quotes for a loan.
+// The MLO sends the four shared items to one or more providers, follows
+// the request, reads the submitted quotes, accepts or declines, and copies
+// an accepted premium into the proposed housing payment (never automatic).
+// Providers work in their own portal (/insurance); this side never shows
+// the provider's market estimate.
+// ─────────────────────────────────────────────────────────────────
+const QUOTE_STATUS = {
+  requested: ['Requested', '#2563eb'], viewed: ['Viewed by provider', '#6b7280'], quoted: ['Quote received', '#d97706'], accepted: ['Accepted', '#059669'], declined: ['Declined', '#b91c1c'],
+  withdrawn: ['Withdrawn', '#6b7280'], declined_by_provider: ['Provider unable to quote', '#b91c1c'], expired: ['Expired', '#6b7280'], superseded: ['Superseded', '#9ca3af'],
+};
+const qChip = s => { const [l, c] = QUOTE_STATUS[s] || [s, '#6b7280']; return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: c + '22', color: c, whiteSpace: 'nowrap' }}>{l}</span>; };
+const qWhen = v => v ? new Date(v).toLocaleString() : '—';
+const qDay = v => v ? String(v).slice(0, 10) : '—';
+
+function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
+  const [data, setData] = useState(null);
+  const [providers, setProviders] = useState([]);
+  const [picked, setPicked] = useState({});
+  const [disclosed, setDisclosed] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [openReq, setOpenReq] = useState(null);     // request id whose thread is open
+  const [thread, setThread] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [declineFor, setDeclineFor] = useState(null);
+  const [reason, setReason] = useState('');
+
+  const load = useCallback(() => {
+    if (!loan?.id) return;
+    apiFetch(`/api/quotes/loan/${loan.id}`).then(d => { setData(d); onBadge && onBadge(d.badge || 0); }).catch(e => { setData({ error: e.message, requests: [] }); });
+    apiFetch('/api/quotes/providers').then(p => { setProviders(p); setPicked(x => Object.keys(x).length ? x : Object.fromEntries(p.map(q => [q.id, true]))); }).catch(() => setProviders([]));
+  }, [loan?.id]);
+  useEffect(load, [load]);
+
+  const requests = data?.requests || [];
+  const byType = t => requests.filter(r => r.quote_type === t);
+  const openFor = pid => requests.find(r => r.provider?.id === pid && ['requested', 'viewed', 'quoted'].includes(r.status));
+  const ready = data?.readiness?.ready;
+  const chosen = providers.filter(p => picked[p.id] && !openFor(p.id));
+
+  const send = async () => {
+    setBusy('send');
+    try {
+      const r = await apiFetch(`/api/quotes/request/${loan.id}`, { method: 'POST', body: { providerIds: chosen.map(p => p.id), disclosed: true } });
+      const made = r.results.filter(x => x.created).map(x => `${x.provider.name} (${x.request_no})`);
+      showToast(made.length ? `✓ Quote request sent to ${made.join(', ')}` : 'No new request — one is already open');
+      setDisclosed(false); load();
+    } catch (e) { const d = e.data || {}; showToast('⚠ ' + (d.error || e.message) + (d.problems ? ': ' + d.problems.join(', ') : '')); }
+    finally { setBusy(null); }
+  };
+  const withdraw = async (r) => { setBusy(r.id); try { await apiFetch(`/api/quotes/request/${r.id}/withdraw`, { method: 'POST', body: {} }); showToast(`Request ${r.request_no} withdrawn`); load(); } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); } };
+  const decide = async (q, status) => {
+    setBusy(q.id);
+    try { await apiFetch(`/api/quotes/quote/${q.id}/${status === 'accepted' ? 'accept' : 'decline'}`, { method: 'POST', body: { reason } }); showToast(`✓ Quote ${q.quote_id} ${status}`); setDeclineFor(null); setReason(''); load(); }
+    catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); }
+  };
+  const useQuote = async (q) => {
+    setBusy(q.id);
+    try {
+      const r = await apiFetch(`/api/quotes/quote/${q.id}/use`, { method: 'POST', body: {} });
+      setFormData(p => ({ ...p, pmt_hoi: String(r.pmt_hoi), hoiQuoteId: r.hoi_quote_id }));
+      showToast(`✓ Homeowners insurance set to $${money2(r.pmt_hoi)}/mo from ${q.quote_id} — review the payment and Save`); load();
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); }
+  };
+  const openThread = async (r) => {
+    if (openReq === r.id) { setOpenReq(null); setThread(null); return; }
+    try { const t = await apiFetch(`/api/quotes/request/${r.id}`); setThread(t); setOpenReq(r.id); load(); } catch (e) { showToast('⚠ ' + e.message); }
+  };
+  const sendMsg = async () => {
+    if (!msg.trim() || !openReq) return;
+    try { const t = await apiFetch(`/api/quotes/request/${openReq}/messages`, { method: 'POST', body: { body: msg } }); setThread(t); setMsg(''); } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
+  };
+
+  const Section = ({ type, title, blurb, comingSoon }) => {
+    const list = byType(type);
+    return (
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>{blurb}</div>
+        {comingSoon ? <div style={{ padding: 18, border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', color: 'var(--text-3)', fontSize: 13 }}>Title quotes will use the same flow — coming next.</div> : (
+          <>
+            {/* Request panel */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 16px', background: '#0f1623', color: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontWeight: 700, fontSize: 13 }}>Request insurance quotes</span><span style={{ fontSize: 11, color: '#94a3b8' }}>Shares only: loan ID · borrower names · property address</span></div>
+                {data?.readiness && (data.readiness.ready ? qChip('ready') : <span style={{ fontSize: 11, color: '#fbbf24' }}>Needed first: {data.readiness.problems.join(' · ')}</span>)}
+              </div>
+              <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Providers</div>
+                  {providers.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No active providers.</div>}
+                  {providers.map(p => { const o = openFor(p.id); return (
+                    <label key={p.id} className="check-row" style={{ opacity: o ? .6 : 1 }}><input type="checkbox" disabled={!!o} checked={!!picked[p.id]} onChange={e => setPicked(x => ({ ...x, [p.id]: e.target.checked }))} /> {p.name}{o ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}> — {o.request_no} already open</span> : null}</label>); })}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>What will be sent</div>
+                  {data?.snapshot && <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                    <div>Loan ID <strong>{data.snapshot.loanNumber}</strong></div>
+                    {data.snapshot.borrowers.map(b => <div key={b.slot}>{b.label}: <strong>{b.firstName} {b.lastName}</strong></div>)}
+                    <div>Property: <strong>{[data.snapshot.property.street, data.snapshot.property.unit, data.snapshot.property.city, data.snapshot.property.state, data.snapshot.property.zip].filter(Boolean).join(', ') || '—'}</strong></div>
+                  </div>}
+                </div>
+              </div>
+              <div style={{ padding: '0 16px 12px' }}>
+                <label className="check-row" style={{ fontWeight: 600, alignItems: 'flex-start' }}><input type="checkbox" checked={disclosed} onChange={e => setDisclosed(e.target.checked)} style={{ marginTop: 3 }} /> <span>{data?.disclosure?.text || 'The borrower has been informed that their name and property address will be shared with insurance providers.'} <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>(recorded with your name, date and IP)</span></span></label>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                  <button className="btn btn-sm btn-primary" disabled={!ready || !disclosed || !chosen.length || busy === 'send'} onClick={send}>{busy === 'send' ? 'Sending…' : `Send request${chosen.length > 1 ? 's' : ''}${chosen.length ? ` (${chosen.length})` : ''}`}</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Requests and quotes */}
+            {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No requests yet.</div>}
+            {list.map(r => {
+              const latest = r.quotes?.[0]; const older = (r.quotes || []).slice(1);
+              const isOpen = ['requested', 'viewed', 'quoted'].includes(r.status);
+              return (
+                <div key={r.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '12px 16px', marginBottom: 12, background: '#fff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <strong>{r.provider?.name}</strong><span style={{ fontSize: 12, color: 'var(--text-3)' }}>{r.request_no}{r.version > 1 ? ` · v${r.version}` : ''}</span>{qChip(r.status)}
+                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>sent {qWhen(r.requested_at)} by {r.mlo?.name}{r.viewed_at ? ` · viewed ${qWhen(r.viewed_at)}` : ''}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-sm" onClick={() => openThread(r)}>{openReq === r.id ? 'Hide messages' : `Messages${r.messages_total ? ` (${r.messages_total}${r.messages_unread ? `, ${r.messages_unread} new` : ''})` : ''}`}</button>
+                      {isOpen && <button className="btn btn-sm" disabled={busy === r.id} onClick={() => withdraw(r)}>Withdraw</button>}
+                    </div>
+                  </div>
+                  {r.close_reason && <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>{r.close_reason}</div>}
+
+                  {latest && latest.status !== 'superseded' && (
+                    <div style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', background: latest.status === 'accepted' ? '#f0fdf4' : 'var(--cream)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 22, fontWeight: 800 }}>${money2(latest.monthly_premium)}<span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}> / month</span></span>
+                          <span style={{ fontSize: 13, color: 'var(--text-2)' }}>${money2(latest.annual_premium)} / year</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{latest.quote_id}</span>{qChip(latest.status)}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {latest.has_pdf && <a className="btn btn-sm" href={`${API_URL}/api/quotes/quote/${latest.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
+                          {latest.status === 'quoted' && <button className="btn btn-sm btn-primary" disabled={busy === latest.id} onClick={() => decide(latest, 'accepted')}>Accept</button>}
+                          {latest.status === 'quoted' && <button className="btn btn-sm" disabled={busy === latest.id} onClick={() => setDeclineFor(declineFor === latest.id ? null : latest.id)}>Decline</button>}
+                          {latest.status === 'accepted' && (data?.hoi?.hoi_quote_id === latest.id
+                            ? qChip('accepted') && <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>✓ Used as homeowners insurance</span>
+                            : <button className="btn btn-sm btn-primary" disabled={busy === latest.id} onClick={() => useQuote(latest)} title="Writes the monthly premium into Proposed Monthly Payment → Homeowners insurance">Use as homeowners insurance</button>)}
+                        </div>
+                      </div>
+                      {declineFor === latest.id && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}><input className="form-input" style={{ flex: 1 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (optional) — the provider will see it" /><button className="btn btn-sm btn-danger" onClick={() => decide(latest, 'declined')}>Confirm decline</button></div>)}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '4px 14px', marginTop: 8, fontSize: 12 }}>
+                        <div><span style={{ color: 'var(--text-3)' }}>Dwelling </span>{latest.dwelling_coverage != null ? '$' + money2(latest.dwelling_coverage) : '—'}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Other structures </span>{latest.other_structures != null ? '$' + money2(latest.other_structures) : '—'}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Personal property </span>{latest.personal_property != null ? '$' + money2(latest.personal_property) : '—'}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Liability </span>{latest.liability != null ? '$' + money2(latest.liability) : '—'}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Deductible </span>{latest.deductible_all_peril != null ? '$' + money2(latest.deductible_all_peril) : '—'}{latest.wind_hail_deductible_pct != null ? ` · wind/hail ${latest.wind_hail_deductible_pct}%` : ''}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Flood </span>{latest.flood_separate ? 'separate policy required' : 'not required'}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Product </span>{latest.carrier_product || '—'}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Effective </span>{qDay(latest.effective_date)}</div>
+                        <div><span style={{ color: 'var(--text-3)' }}>Valid until </span><span style={{ color: latest.status === 'expired' ? '#b91c1c' : undefined }}>{qDay(latest.valid_until)}</span></div>
+                      </div>
+                      {latest.notes && <div style={{ fontSize: 12, marginTop: 6, fontStyle: 'italic', color: 'var(--text-2)' }}>{latest.notes}</div>}
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Submitted {qWhen(latest.submitted_at)} by {latest.submitted_by}{latest.decided_at ? ` · ${latest.status} ${qWhen(latest.decided_at)} by ${latest.decided_by}` : ''}{latest.decline_reason ? ` — ${latest.decline_reason}` : ''}</div>
+                    </div>)}
+                  {older.length > 0 && <details style={{ marginTop: 6, fontSize: 12, color: 'var(--text-2)' }}><summary style={{ cursor: 'pointer' }}>Earlier quotes ({older.length})</summary>
+                    {older.map(q => <div key={q.id} style={{ padding: '3px 0', display: 'flex', gap: 8, alignItems: 'center' }}><span>{q.quote_id}</span>{qChip(q.status)}<span>${money2(q.monthly_premium)}/mo · ${money2(q.annual_premium)}/yr</span><span style={{ color: 'var(--text-3)' }}>{qWhen(q.submitted_at)}</span></div>)}</details>}
+
+                  {openReq === r.id && thread && (
+                    <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                      {(thread.messages || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No messages yet.</div>}
+                      {(thread.messages || []).map(m => (
+                        <div key={m.id} style={{ display: 'flex', justifyContent: m.sender_type === 'mlo' ? 'flex-end' : 'flex-start', marginBottom: 6 }}>
+                          <div style={{ maxWidth: '78%', background: m.sender_type === 'mlo' ? 'var(--accent-light)' : '#f3f4f6', borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                            <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{m.sender_name} · {qWhen(m.created_at)}</div>{m.body}</div></div>))}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}><input className="form-input" style={{ flex: 1 }} value={msg} onChange={e => setMsg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendMsg(); }} placeholder={`Message ${r.provider?.name}…`} /><button className="btn btn-sm btn-primary" onClick={sendMsg}>Send</button></div>
+                    </div>)}
+                </div>);
+            })}
+          </>)}
+      </div>
+    );
+  };
+
+  if (data?.error) return <div style={{ color: '#b91c1c', fontSize: 13 }}>Could not load quotes: {data.error}</div>;
+  return (
+    <div>
+      <Section type="insurance" title="Insurance Quote" blurb="Homeowners insurance quotes from the providers connected to Jammie. The provider sees only the loan ID, borrower names and the property address." />
+      <Section type="title" title="Title Quote" blurb="Title and settlement quotes." comingSoon />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // NEW LOAN — name + email + purpose, then optionally invite the
 // borrower to the portal in the same step. Replaces the old one-click
 // "New Borrower" placeholder row.
@@ -6111,8 +6366,19 @@ function MLOLogin({ onAuthenticated }) {
 // ─────────────────────────────────────────────────────────────────
 // The borrower portal lives under /apply. Everything else is the CRM.
 const IS_BORROWER_PATH = window.location.pathname === '/apply' || window.location.pathname.startsWith('/apply/');
+const IS_PROVIDER_PATH = window.location.pathname === '/insurance' || window.location.pathname.startsWith('/insurance/');
 
 export default function App() {
+  if (IS_PROVIDER_PATH) {
+    return (
+      <>
+        <GlobalStyles />
+        <Suspense fallback={<div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'#6b7280',fontSize:13}}>Loading…</div>}>
+          <InsuranceApp />
+        </Suspense>
+      </>
+    );
+  }
   if (IS_BORROWER_PATH) {
     return (
       <>
@@ -6128,7 +6394,8 @@ export default function App() {
 
 function MloApp() {
   const [mloUser, setMloUser] = useState(null);       // null = not logged in
-  const [page, setPage] = useState("dashboard");
+  // Links in notification e-mails (/?loan=<id>&tab=quotes) land on the Loans page, which opens that loan.
+  const [page, setPage] = useState(() => (new URLSearchParams(window.location.search).get('loan') ? "loans" : "dashboard"));
   const [toast, setToast] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [loans, setLoans] = useState([]);
