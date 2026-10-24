@@ -8,20 +8,27 @@
  *   POST /request/:id/withdraw           { reason? }
  *   GET  /request/:id                    one request with messages (marks provider messages read)
  *   POST /request/:id/messages           { body }
- *   POST /quote/:id/accept               MLO accepts the quote (other quotes on the loan stay as they are)
- *   POST /quote/:id/decline              { reason }
- *   POST /quote/:id/use                  copies monthly premium to loans.pmt_hoi (+ hoi_quote_id)
+ *   POST /request/:id/borrower-messages  { body }   MLO answers the borrower in the borrower thread (provider never sees it)
+ *   POST /request/:id/borrower-read      marks the borrower's messages read
+ *   POST /quote/:id/decision             { decision:'accepted'|'declined', onBehalfNote, reason }
+ *                                        the MLO records the BORROWER's decision on their behalf (phone, in person…)
+ *   POST /quote/:id/hide | /unhide       { reason }  keep a quote away from the borrower
  *   GET  /quote/:id/pdf
+ *   GET  /hoi/:loanId                    the homeowners-insurance figure (source, lock, note); fills the market
+ *                                        estimate in when the loan has none
+ *   POST /hoi/:loanId/unlock             { reason }
  *   GET  /disclosure                     the disclosure text + version the checkbox attests to
  *
- * Everything the provider sees is the snapshot taken here; the MLO never
- * sees the provider's estimate (it is stripped from quoteView on this side).
+ * The borrower decides. The MLO no longer accepts or declines — only records
+ * a decision the borrower gave outside the portal. Everything the provider
+ * sees is the snapshot taken here; the MLO never sees the provider's estimate.
  */
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db.cjs');
 const Q       = require('../lib/quotes.cjs');
 const email   = require('../lib/email.cjs');
+const notify  = require('../lib/quote-notify.cjs');
 
 const clientIp = req => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || String(req.headers['x-real-ip'] || '').trim() || req.ip || null;
 const who = req => ({ id: req.user?.id, name: req.user?.name || [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' '), email: req.user?.email, username: req.user?.username });
@@ -53,12 +60,14 @@ router.get('/loan/:loanId', async (req, res) => {
     if (!snapshot) return res.status(404).json({ error: 'Loan not found' });
     const [rows] = await db.query('SELECT * FROM insurance_quote_requests WHERE loan_id=? ORDER BY id DESC', [loanId]);
     const requests = [];
-    for (const r of rows) requests.push(await Q.requestView(r, { side: 'mlo' }));
-    const [[loan]] = await db.query('SELECT pmt_hoi, hoi_quote_id FROM loans WHERE id=?', [loanId]);
+    for (const r of rows) requests.push(await Q.requestView(r, { side: 'mlo', withMessages: true }));   // threads are shown inline
+    await Q.applyEstimateIfBlank(loanId).catch(() => null);
+    const hoi = await Q.hoiView(loanId);
+    const borrowers = await Q.borrowerAccounts(loanId);
     const newQuotes = requests.filter(r => r.status === 'quoted').length;
-    const unread = requests.reduce((a, r) => a + r.messages_unread, 0);
-    res.json({ snapshot, readiness: { ready: Q.readiness(snapshot).length === 0, problems: Q.readiness(snapshot) }, requests,
-      hoi: { pmt_hoi: loan?.pmt_hoi != null ? Number(loan.pmt_hoi) : null, hoi_quote_id: loan?.hoi_quote_id || null },
+    const unread = requests.reduce((a, r) => a + r.messages_unread + (r.borrower_messages_unread || 0), 0);
+    res.json({ snapshot, readiness: { ready: Q.readiness(snapshot).length === 0, problems: Q.readiness(snapshot) }, requests, hoi,
+      borrowers: borrowers.map(b => ({ name: b.name, role: b.role, slot: b.slot })),   // who can decide in the portal (no e-mails to the UI)
       badge: newQuotes + unread, disclosure: { version: Q.DISCLOSURE_VERSION, text: Q.DISCLOSURE_TEXT } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -132,35 +141,70 @@ router.post('/request/:id/messages', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-async function decide(req, res, status) {
+// The MLO records a decision the borrower gave outside the portal (phone, e-mail, in person).
+router.post('/quote/:id/decision', async (req, res) => {
   try {
     const q = await loadQuote(req.params.id);
     if (!q) return res.status(404).json({ error: 'Quote not found' });
-    const eff = Q.effectiveQuoteStatus(q);
-    if (eff !== 'quoted') return res.status(409).json({ error: `This quote is ${eff}` });
-    const reason = status === 'declined' ? String(req.body?.reason || '').slice(0, 255) || null : null;
-    await db.query('UPDATE insurance_quotes SET status=?, decided_by=?, decided_at=NOW(), decline_reason=? WHERE id=?', [status, who(req).name || who(req).email, reason, q.id]);
-    await db.query('UPDATE insurance_quote_requests SET status=? WHERE id=?', [status, q.request_id]);
-    const r = await loadRequest(q.request_id);
-    const [[p]] = await db.query('SELECT name, notification_email FROM insurance_providers WHERE id=?', [r.provider_id]);
-    if (p?.notification_email) email.sendNotice({ to: p.notification_email, type: `quote_${status}`, loanId: r.loan_id, subject: `Quote ${q.quote_id} ${status}`,
-      title: `Quote ${q.quote_id} was ${status}`, lines: [`${who(req).name || 'The loan officer'} ${status} your quote on request ${r.request_no}.`, ...(reason ? [`Reason: ${reason}`] : [])],
-      buttonLabel: 'Open the quote portal', buttonUrl: portalUrl(), replyTo: who(req).email }).catch(() => {});
-    res.json({ ok: true, request: await Q.requestView(r, { side: 'mlo' }) });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-}
-router.post('/quote/:id/accept',  (req, res) => decide(req, res, 'accepted'));
-router.post('/quote/:id/decline', (req, res) => decide(req, res, 'declined'));
+    const decision = req.body?.decision === 'accepted' ? 'accepted' : req.body?.decision === 'declined' ? 'declined' : null;
+    if (!decision) return res.status(422).json({ error: 'decision must be accepted or declined' });
+    const onBehalfNote = String(req.body?.onBehalfNote || '').trim().slice(0, 255);
+    if (!onBehalfNote) return res.status(422).json({ error: 'Say how the borrower gave this decision (e.g. "By phone with Ana, 10/24")' });
+    const result = await Q.decideQuote({ quoteId: q.id, decision, by: { type: 'mlo', id: req.user?.id, name: who(req).name || who(req).email }, reason: req.body?.reason, onBehalfNote });
+    notify.decision({ loanId: q.loan_id, decisionType: decision, result, by: { type: 'mlo', name: who(req).name } }).catch(() => {});
+    res.json({ ok: true, hoi: result.hoi, request: await Q.requestView(result.request, { side: 'mlo', withMessages: true }) });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
 
-// Copy the accepted quote's monthly premium into the loan's proposed housing payment.
-router.post('/quote/:id/use', async (req, res) => {
+router.post('/quote/:id/hide', async (req, res) => {
   try {
     const q = await loadQuote(req.params.id);
     if (!q) return res.status(404).json({ error: 'Quote not found' });
-    if (q.status !== 'accepted') return res.status(409).json({ error: 'Accept the quote first' });
-    await db.query('UPDATE loans SET pmt_hoi=?, hoi_quote_id=? WHERE id=?', [Number(q.monthly_premium), q.id, q.loan_id]);
-    res.json({ ok: true, pmt_hoi: Number(q.monthly_premium), hoi_quote_id: q.id, quote_id: q.quote_id });
+    const reason = String(req.body?.reason || '').trim().slice(0, 255);
+    if (!reason) return res.status(422).json({ error: 'A reason is required (the borrower will not see this quote)' });
+    await Q.hideQuote(q.id, { reason, user: req.user });
+    res.json({ ok: true, request: await Q.requestView(await loadRequest(q.request_id), { side: 'mlo', withMessages: true }) });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/quote/:id/unhide', async (req, res) => {
+  try {
+    const q = await loadQuote(req.params.id);
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
+    await Q.unhideQuote(q.id);
+    res.json({ ok: true, request: await Q.requestView(await loadRequest(q.request_id), { side: 'mlo', withMessages: true }) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Borrower thread (channel 'borrower'): the MLO's replies; the provider never sees this channel.
+router.post('/request/:id/borrower-messages', async (req, res) => {
+  try {
+    const r = await loadRequest(req.params.id);
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    const body = String(req.body?.body || '').trim().slice(0, 4000);
+    if (!body) return res.status(422).json({ error: 'Message is empty' });
+    await db.query('INSERT INTO quote_messages SET ?', { request_id: r.id, channel: 'borrower', sender_type: 'mlo', sender_id: req.user?.id || null, sender_name: who(req).name || who(req).email, body });
+    notify.mloMessageToBorrowers({ loanId: r.loan_id, request: r, body, mloName: who(req).name || 'Your loan officer' }).catch(() => {});
+    res.status(201).json(await Q.requestView(r, { side: 'mlo', withMessages: true }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/request/:id/borrower-read', async (req, res) => {
+  try { await Q.markMessagesRead(Number(req.params.id), 'mlo', 'borrower'); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// The homeowners-insurance figure on the loan. GET fills in the market estimate when the loan has none.
+router.get('/hoi/:loanId', async (req, res) => {
+  try {
+    const loanId = Number(req.params.loanId);
+    const applied = await Q.applyEstimateIfBlank(loanId, { user: who(req) });
+    const hoi = await Q.hoiView(loanId);
+    if (!hoi) return res.status(404).json({ error: 'Loan not found' });
+    res.json({ ...hoi, applied: !!applied.applied, estimate: applied.estimate || (await Q.estimateForLoan(loanId).catch(() => null)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+router.post('/hoi/:loanId/unlock', async (req, res) => {
+  try { res.json(await Q.unlockHoi(Number(req.params.loanId), { reason: req.body?.reason, user: who(req) })); }
+  catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
 router.get('/quote/:id/pdf', async (req, res) => {

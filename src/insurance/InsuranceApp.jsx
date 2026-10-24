@@ -19,7 +19,8 @@ const money = (v, d = 2) => (v == null || v === '' || isNaN(Number(v))) ? '—' 
 const when = v => v ? new Date(v).toLocaleString() : '—';
 const day = v => v ? String(v).slice(0, 10) : '—';
 const STATUS = {
-  requested: ['New', '#2563eb'], viewed: ['Viewed', '#6b7280'], quoted: ['Quoted', '#d97706'], accepted: ['Accepted', '#059669'], declined: ['Declined', '#b91c1c'],
+  requested: ['New', '#2563eb'], viewed: ['Viewed', '#6b7280'], quoted: ['Quoted', '#d97706'], accepted: ['Accepted by borrower', '#059669'],
+  declined: ['Not selected', '#6b7280'], not_selected: ['Not selected', '#6b7280'],   // the provider is told one thing only: it was not the chosen quote
   withdrawn: ['Withdrawn', '#6b7280'], declined_by_provider: ['Unable to quote', '#b91c1c'], expired: ['Expired', '#6b7280'], superseded: ['Superseded', '#9ca3af'],
 };
 const Chip = ({ s }) => { const [l, c] = STATUS[s] || [s, '#6b7280']; return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: c + '22', color: c, whiteSpace: 'nowrap' }}>{l}</span>; };
@@ -225,7 +226,9 @@ function RequestPage({ id, user, showToast }) {
             <L k="Product" v={latest.carrier_product} /><L k="Effective" v={day(latest.effective_date)} /><L k="Valid until" v={day(latest.valid_until)} />
           </div>
           {latest.notes && <div style={{ fontSize: 13, marginTop: 8, fontStyle: 'italic' }}>{latest.notes}</div>}
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>Submitted {when(latest.submitted_at)} by {latest.submitted_by}{latest.decided_at ? ` · ${latest.status} ${when(latest.decided_at)} by ${latest.decided_by}` : ''}{latest.decline_reason ? ` — ${latest.decline_reason}` : ''}</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>Submitted {when(latest.submitted_at)} by {latest.submitted_by}{latest.decided_at ? ` · ${(STATUS[latest.status] || [latest.status])[0].toLowerCase()} ${when(latest.decided_at)}` : ''}</div>
+          {latest.status === 'accepted' && <div style={{ fontSize: 13, color: '#065f46', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '8px 12px', marginTop: 8 }}>✓ The borrower accepted this quote. The loan officer will coordinate the policy start date with you here — please do not contact the borrower directly.</div>}
+          {latest.status === 'not_selected' && <div style={{ fontSize: 13, color: '#4b5563', background: '#f3f4f6', borderRadius: 8, padding: '8px 12px', marginTop: 8 }}>The borrower did not go with this quote. Thank you for quoting.</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             {latest.has_pdf && <a className="auth-btn-sec" style={{ width: 'auto', padding: '8px 14px', textDecoration: 'none', display: 'inline-block' }} href={`${API_URL}/api/provider/quotes/${latest.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
             {canQuote && <button className="auth-btn-sec" style={{ width: 'auto', padding: '8px 14px' }} onClick={() => setEditing(true)}>Revise quote (creates {latest.quote_id.replace(/-[A-Z]$/, '')}-{String.fromCharCode(65 + latest.revision)})</button>}
@@ -268,10 +271,10 @@ function RequestPage({ id, user, showToast }) {
             <div style={{ maxWidth: '78%', background: m.sender_type === 'provider' ? '#eff6ff' : '#f3f4f6', borderRadius: 10, padding: '8px 12px', fontSize: 13 }}>
               <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{m.sender_name} · {when(m.created_at)}</div>{m.body}</div>
           </div>))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        {!(open || r.status === 'accepted') ? <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>This request is closed — messaging is off.</div> : <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <input value={msg} onChange={ev => setMsg(ev.target.value)} onKeyDown={ev => { if (ev.key === 'Enter') sendMsg(); }} placeholder="Write a message…" style={{ flex: 1, padding: 10, border: '1.5px solid #e5e7eb', borderRadius: 8, fontSize: 14 }} />
           <button className="auth-btn" style={{ width: 'auto', padding: '10px 16px', margin: 0 }} onClick={sendMsg}>Send</button>
-        </div>
+        </div>}
       </Box>
     </div>
   );

@@ -29,7 +29,8 @@ async function own(req) {
   const [[r]] = await db.query('SELECT * FROM insurance_quote_requests WHERE id=? AND provider_id=?', [Number(req.params.id), req.user.providerId]);
   return r || null;
 }
-const INBOX = { new: ['requested'], viewed: ['viewed'], quoted: ['quoted'], decided: ['accepted', 'declined', 'declined_by_provider', 'withdrawn'], expired: ['expired'] };
+const INBOX = { new: ['requested'], viewed: ['viewed'], quoted: ['quoted'], decided: ['accepted', 'declined', 'not_selected', 'declined_by_provider', 'withdrawn'], expired: ['expired'] };
+const notify = require('../lib/quote-notify.cjs');
 
 router.get('/summary', async (req, res) => {
   try {
@@ -85,8 +86,10 @@ router.post('/requests/:id/quotes', async (req, res) => {
       subject: `${req.user.providerName} ${q.revision > 1 ? 'revised' : 'submitted'} quote ${q.quote_id} - loan ${out.snapshot?.loanNumber || ''}`,
       title: `Quote ${q.quote_id} from ${req.user.providerName}`,
       lines: [`${who(req).name} ${q.revision > 1 ? 'revised the' : 'submitted a'} ${r.quote_type} quote on request ${r.request_no}: $${Number(q.monthly_premium).toFixed(2)} / month ($${Number(q.annual_premium).toFixed(2)} / year), valid until ${new Date(q.valid_until).toISOString().slice(0, 10)}.`,
-              'Open the loan\'s Quotes tab to review, accept or decline it.'],
+              'The borrower has been notified and decides in their portal; you can follow it on the loan\'s Quotes tab.'],
       buttonLabel: 'Open the loan', buttonUrl: crmUrl(r.loan_id), replyTo: who(req).email }).catch(() => {});
+    // The quote reaches the borrower at the same moment it reaches the MLO.
+    notify.newQuoteToBorrowers({ loanId: r.loan_id, quote: q, providerName: req.user.providerName, revised: q.revision > 1 }).catch(() => {});
     res.status(201).json({ ...out, submitted: Q.quoteView(q, { withEstimate: true }) });
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
@@ -109,6 +112,7 @@ router.post('/requests/:id/messages', async (req, res) => {
   try {
     const r = await own(req);
     if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (!['requested', 'viewed', 'quoted', 'accepted'].includes(r.status)) return res.status(409).json({ error: 'This request is closed - messaging is off' });
     const body = String(req.body?.body || '').trim().slice(0, 4000);
     if (!body) return res.status(422).json({ error: 'Message is empty' });
     await db.query('INSERT INTO quote_messages SET ?', { request_id: r.id, sender_type: 'provider', sender_id: req.user.id, sender_name: `${who(req).name} (${req.user.providerName})`, body });

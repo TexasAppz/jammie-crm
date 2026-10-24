@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db.cjs');
 const { buildMismoXml, parseMismoXml } = require('../lib/mismo.cjs');
+const Q = require('../lib/quotes.cjs');   // homeowners-insurance figure: lock + market estimate
 const { validateMismoOrdering } = require('../lib/mismo-validate.cjs');
 
 // GET /api/mismo/export/:loan_id -> streams a MISMO 3.4 XML file
@@ -34,10 +35,6 @@ router.get('/export/:loan_id', async (req, res) => {
     }
 
     const fileName = `MISMO_${loanRows[0].loan_number || loanId}.xml`;
-    // Custom + Content-Disposition headers are not readable by fetch()
-    // unless explicitly exposed; the frontend reads both for the filename
-    // and the structural-warning count.
-    res.setHeader('Access-Control-Expose-Headers', 'X-Mismo-Validation-Warnings, Content-Disposition');
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.send(xml);
@@ -80,9 +77,15 @@ router.post('/import/:loan_id', async (req, res) => {
       parsed.loan.borrower = [importedFirst, importedLast].filter(Boolean).join(' ');
     }
 
+    // Homeowners insurance: a figure locked by a borrower-accepted quote wins over the file;
+    // otherwise a figure in the file is recorded as such.
+    const fileHoi = parsed.loan.pmt_hoi != null && Number(parsed.loan.pmt_hoi) > 0 ? Number(parsed.loan.pmt_hoi) : null;
+    if ('pmt_hoi' in parsed.loan) delete parsed.loan.pmt_hoi;
     if (Object.keys(parsed.loan).length) {
       await db.query('UPDATE loans SET ? WHERE id=?', [parsed.loan, loanId]);
     }
+    let hoi = null;
+    if (fileHoi != null) await Q.setHoiManual(loanId, { amount: fileHoi, source: 'file', note: 'From the imported MISMO file' }).catch(() => {});
 
     if (Object.keys(parsed.form1003).length) {
       const [existing] = await db.query('SELECT id FROM form_1003_main_borrower WHERE loan_id=? ORDER BY updated_at DESC LIMIT 1', [loanId]);
@@ -93,8 +96,11 @@ router.post('/import/:loan_id', async (req, res) => {
       }
     }
 
+    // No figure in the file (and none locked on the loan): the market estimate fills it in.
+    if (fileHoi == null) await Q.applyEstimateIfBlank(loanId).catch(() => null);
+    hoi = await Q.hoiView(loanId).catch(() => null);
     const [updatedLoan] = await db.query('SELECT * FROM loans WHERE id=?', [loanId]);
-    res.json({ success: true, loan: updatedLoan[0], imported_fields: { loan: Object.keys(parsed.loan), form1003: Object.keys(parsed.form1003) } });
+    res.json({ success: true, loan: updatedLoan[0], hoi, imported_fields: { loan: Object.keys(parsed.loan).concat(fileHoi != null ? ['pmt_hoi'] : []), form1003: Object.keys(parsed.form1003) } });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

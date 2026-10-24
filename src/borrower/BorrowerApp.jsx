@@ -9,6 +9,7 @@
 //   /apply/login           returning borrower sign-in
 //   /apply                 home: my application(s), status, loan officer
 //   /apply/loan/:id        the guided application (Application.jsx)
+//   /apply/loan/:id/quotes homeowners-insurance quotes: compare, accept/decline (Quotes.jsx)
 //
 // Phase 2 scope ends at "signed in and looking at my application". The
 // form itself is Phase 3.
@@ -16,6 +17,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "../shared/api.js";
 import Application from "./Application.jsx";
+import Quotes from "./Quotes.jsx";
 
 const PATH = () => window.location.pathname.replace(/\/+$/, '') || '/';
 const go = (path) => { window.history.pushState({}, '', path); window.dispatchEvent(new Event('popstate')); };
@@ -196,9 +198,11 @@ const STATUS_TEXT = {
   draft:       { label: 'Not started', color: '#6b7280', hint: '' },
 };
 
-function Home({ user, data, onSignOut, onChangePassword, onOpen }) {
+function Home({ user, data, onSignOut, onChangePassword, onOpen, onOpenQuotes }) {
   const loans = data?.loans || [];
   const mlo = loans[0]?.mlo || null;
+  const [quotes, setQuotes] = useState({});   // loanId -> { requested, received, waiting, accepted, badge }
+  useEffect(() => { apiFetch('/api/apply-quotes/summary').then(setQuotes).catch(() => setQuotes({})); }, [data]);
   return (
     <div className="b-wrap">
       <Header user={user} mlo={mlo} onSignOut={onSignOut} />
@@ -236,6 +240,17 @@ function Home({ user, data, onSignOut, onChangePassword, onOpen }) {
                 ) : (
                   <div style={{fontSize:13,color:'#059669',fontWeight:600}}>✓ Submitted {l.submittedAt ? new Date(l.submittedAt).toLocaleDateString() : ''}</div>
                 )}
+                {(() => {
+                  const q = quotes[l.id];
+                  if (!q || !q.requested) return null;
+                  const line = q.accepted ? `Accepted: ${q.accepted}` : q.received ? `${q.received} quote${q.received > 1 ? 's' : ''} received${q.waiting ? `, ${q.waiting} still waiting` : ''}${q.can_decide ? ' — your decision is needed' : ''}` : `Waiting on ${q.waiting} provider${q.waiting > 1 ? 's' : ''}`;
+                  return (
+                    <button className="auth-btn-sec" style={{marginTop:10,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,textAlign:'left'}} onClick={() => onOpenQuotes(l.id)}>
+                      <span><span style={{fontWeight:700,color:'#1e2d45'}}>🏠 Homeowners insurance quotes</span><span style={{display:'block',fontSize:12,color:'#6b7280',marginTop:2}}>{line}</span></span>
+                      <span style={{display:'flex',alignItems:'center',gap:8}}>{q.badge > 0 && <span style={{background:'#b91c1c',color:'#fff',borderRadius:10,padding:'1px 8px',fontSize:11,fontWeight:700}}>{q.badge}</span>}<span>→</span></span>
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           );
@@ -315,14 +330,15 @@ export default function BorrowerApp() {
 
   const inviteMatch = path.match(/^\/apply\/invite\/([A-Za-z0-9_-]+)$/);
   const loanMatch   = path.match(/^\/apply\/loan\/(\d+)$/);
+  const quotesMatch = path.match(/^\/apply\/loan\/(\d+)\/quotes$/);
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 3500); };
 
   // Redirects happen after render, never during it.
   useEffect(() => {
     if (inviteMatch || !checked) return;
     if (!user && path !== '/apply/login') go('/apply/login' + (path !== '/apply' ? `?next=${encodeURIComponent(path)}` : ''));
-    if (user && path !== '/apply' && !loanMatch) go('/apply');
-  }, [inviteMatch, loanMatch, checked, user, path]);
+    if (user && path !== '/apply' && !loanMatch && !quotesMatch) go('/apply');
+  }, [inviteMatch, loanMatch, quotesMatch, checked, user, path]);
 
   // Back on the home screen after an application session: refresh statuses.
   const exitApplication = () => { go('/apply'); loadData(); };
@@ -336,6 +352,14 @@ export default function BorrowerApp() {
     body = <div className="b-wrap"><Header /><BorrowerLogin onSignedIn={signedIn} /></div>;
   } else if (!data) {
     body = <div style={{minHeight:'100vh',display:'grid',placeItems:'center',color:'#6b7280',fontSize:13}}>Loading your application…</div>;
+  } else if (quotesMatch) {
+    const loan = data.loans.find(l => l.id === Number(quotesMatch[1]));
+    body = (
+      <div className="b-wrap">
+        <Header user={user} mlo={loan?.mlo || data.loans[0]?.mlo} onSignOut={signOut} />
+        <Quotes loanId={Number(quotesMatch[1])} user={user} onExit={exitApplication} showToast={showToast} />
+      </div>
+    );
   } else if (loanMatch) {
     const loan = data.loans.find(l => l.id === Number(loanMatch[1]));
     body = (
@@ -345,7 +369,7 @@ export default function BorrowerApp() {
       </div>
     );
   } else {
-    body = <Home user={user} data={data} onSignOut={signOut} onChangePassword={() => setPwOpen(true)} onOpen={id => go(`/apply/loan/${id}`)} />;
+    body = <Home user={user} data={data} onSignOut={signOut} onChangePassword={() => setPwOpen(true)} onOpen={id => go(`/apply/loan/${id}`)} onOpenQuotes={id => go(`/apply/loan/${id}/quotes`)} />;
   }
 
   return (

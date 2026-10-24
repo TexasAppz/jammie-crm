@@ -104,7 +104,9 @@ async function seats(loanId) {
     const s = seat(slot);
     if (!s.invite) {
       const state = inviteState(i);
-      const raw = state === 'pending' ? tokens.open(i.token_enc) : null;   // only a live link is ever shown
+      // A live link is shown so the MLO can copy it; a used (accepted) link stays on screen for the record —
+      // it cannot create a second account (accepted_at is set) and only lands on sign-in. Expired/revoked: never.
+      const raw = (state === 'pending' || state === 'accepted') && i.token_enc ? (() => { try { return tokens.open(i.token_enc); } catch { return null; } })() : null;
       s.invite = { email: i.email, state, sentAt: i.created_at, expiresAt: i.expires_at, acceptedAt: i.accepted_at,
         url: raw ? `${email.BASE_URL()}/apply/invite/${raw}` : null };
     }

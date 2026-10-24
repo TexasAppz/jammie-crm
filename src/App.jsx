@@ -48,6 +48,7 @@ const GlobalStyles = () => (
     .filter-pill:hover { border-color: #9ca3af; background: var(--cream); }
     .filter-pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 14px; font-weight: 500; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.6); }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: var(--white); color: var(--text-2); border: 1px solid var(--border); }
@@ -2107,6 +2108,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   : 'Conventional',
       // Payment fields from loans table
       pmt_hoi:              loanRow.pmt_hoi              ? String(loanRow.pmt_hoi)              : '',
+      hoiMeta:              { amount: loanRow.pmt_hoi != null ? Number(loanRow.pmt_hoi) : null, source: loanRow.pmt_hoi_source || (loanRow.pmt_hoi ? 'manual' : null), locked: !!loanRow.pmt_hoi_locked_at, note: loanRow.pmt_hoi_note || null },
       pmt_property_taxes:   loanRow.pmt_property_taxes   ? String(loanRow.pmt_property_taxes)   : '',
       pmt_mi:               loanRow.pmt_mi               ? String(loanRow.pmt_mi)               : '',
       pmt_supplemental:     loanRow.pmt_supplemental     ? String(loanRow.pmt_supplemental)     : '',
@@ -2292,7 +2294,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); refreshHoi(loanRow.id); });
     // Co-borrowers (slots 2..4) — what the MLO added here or what they entered in the portal.
     apiFetch(`/api/coborrowers/${loanRow.id}`)
       .then(rows => { if (Array.isArray(rows) && rows.length) setBorrowers(p => [p[0], ...rows.map(coborrowerFromRow)]); })
@@ -2300,6 +2302,19 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   }, []);
 
   useEffect(() => { loadLoanData(loan); }, [loan.id, loadLoanData]);
+
+  // Homeowners insurance figure: the server fills in the market estimate when the loan has none
+  // (needs a saved state + ZIP), and tells us whether a borrower-accepted quote has locked it.
+  const refreshHoi = async (loanId) => {
+    try {
+      const h = await apiFetch(`/api/quotes/hoi/${loanId || loan.id}`);
+      setFormData(p => {
+        const next = { ...p, hoiMeta: h };
+        if (h.locked || h.applied || (h.amount != null && !p.pmt_hoi)) next.pmt_hoi = h.amount != null ? String(h.amount) : p.pmt_hoi;
+        return next;
+      });
+    } catch { /* quotes API not mounted yet — the field just stays editable */ }
+  };
 
   // ── DTI CALCULATION — live from Income, PITI, Liabilities ───────
   const calcDTI = () => {
@@ -2688,6 +2703,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         }
         else { await db.form1003.insert(payload).catch(()=>{}); }
         await saveCoborrowers(loan.id, borrowers);
+        refreshHoi(loan.id);   // the address may just have become complete → estimate; or a quote may have locked it
       }
     } catch (err) {
       // Previously swallowed entirely, which is how failed tab-switch saves
@@ -3364,17 +3380,21 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                   ['MI',             'pmt_mi',              '0.000%'],
                   ['Supplemental',   'pmt_supplemental',    'Supplemental Ins.'],
                   ['Association Dues','pmt_association_dues','HOA monthly'],
-                ].map(([lbl,key,placeholder])=>(
-                  <div key={key} style={{display:'grid',gridTemplateColumns:'1fr 90px 110px 90px',padding:'8px 18px',borderBottom:'1px solid var(--border-light)',gap:8,alignItems:'center'}}>
-                    <span style={{fontSize:14,color:'var(--text)'}}>{lbl}</span>
+                ].map(([lbl,key,placeholder])=>{
+                  const hm = key==='pmt_hoi' ? (formData.hoiMeta||null) : null;
+                  const locked = !!hm?.locked;
+                  const [srcLbl, srcCol, srcTip] = hm?.source ? (HOI_SOURCE[hm.source] || [hm.source, '#6b7280', '']) : [null, null, null];
+                  return (
+                  <div key={key} style={{display:'grid',gridTemplateColumns:'1fr 90px 110px 90px',padding:'8px 18px',borderBottom:'1px solid var(--border-light)',gap:8,alignItems:'center',background:locked?'#f0fdf4':undefined}}>
+                    <span style={{fontSize:14,color:'var(--text)',display:'inline-flex',alignItems:'center',gap:8,whiteSpace:'nowrap'}}>{lbl}{hm && srcLbl && <span title={`${srcTip}${hm.note ? ' — ' + hm.note : ''}`} style={{fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:10,background:srcCol+'22',color:srcCol,cursor:'help'}}>{locked?'🔒 ':''}{srcLbl}</span>}</span>
                     <div style={{display:'flex',justifyContent:'flex-end'}}>
-                      <div style={{fontSize:11,background:'#f3f4f6',color:'var(--text-3)',padding:'2px 7px',borderRadius:10}}>No</div>
+                      <div style={{fontSize:11,background:'#f3f4f6',color:'var(--text-3)',padding:'2px 7px',borderRadius:10}}>{key==='pmt_hoi' && hm?.source==='estimate' ? 'Est.' : 'No'}</div>
                     </div>
-                    <div style={{position:'relative'}}>
+                    <div style={{position:'relative'}} title={locked ? `Locked: ${hm.note || 'borrower-accepted quote'}. Unlock on the Quotes tab.` : undefined}>
                       <span style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',color:'var(--text-3)',fontSize:13,pointerEvents:'none'}}>$</span>
                       <input type="number" value={formData[key]||''} onChange={e=>setFormData(p=>({...p,[key]:e.target.value}))}
-                        placeholder="0.00" step="0.01"
-                        style={{width:'100%',padding:'5px 8px 5px 18px',border:'1px solid var(--border)',borderRadius:5,fontSize:13,textAlign:'right',outline:'none'}}
+                        placeholder="0.00" step="0.01" readOnly={locked} disabled={locked}
+                        style={{width:'100%',padding:'5px 8px 5px 18px',border:'1px solid var(--border)',borderRadius:5,fontSize:13,textAlign:'right',outline:'none',background:locked?'#ecfdf5':undefined,color:locked?'#065f46':undefined,fontWeight:locked?700:undefined}}
                         onFocus={e=>{e.target.style.borderColor='#2563EB';e.target.style.boxShadow='0 0 0 2px rgba(37,99,235,.1)'}}
                         onBlur={e=>{e.target.style.borderColor='var(--border)';e.target.style.boxShadow='none'}}
                       />
@@ -3383,7 +3403,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
                       {formData[key]?'$'+money2(formData[key]):'--'}
                     </span>
                   </div>
-                ))}
+                );})}
 
                 {/* Other — with description field */}
                 <div style={{display:'grid',gridTemplateColumns:'1fr 90px 110px 90px',padding:'8px 18px',borderBottom:'1px solid var(--border-light)',gap:8,alignItems:'center'}}>
@@ -3433,7 +3453,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
           {loanSubTab==='property' && <>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,marginBottom:20}}>
               <div>
-                <div className="form-group" style={{marginBottom:16}}>
+                <div className="form-group" id="subject-property" style={{marginBottom:16}}>
                   <label className="form-label">Subject Property Address *</label>
                   <input className="form-input" value={formData.spAddr1||''} onChange={e=>setFormData(p=>({...p,spAddr1:e.target.value}))} placeholder="Street address or TBD"/>
                 </div>
@@ -4073,7 +4093,8 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         {/* ════════════════════════════
             TAB 7 — QUOTES (insurance now, title next)
         ════════════════════════════ */}
-        {activeTab==='quotes' && <QuotesTab loan={loan} formData={formData} setFormData={setFormData} showToast={showToast} onBadge={setQuotesBadge}/>}
+        {activeTab==='quotes' && <QuotesTab loan={loan} formData={formData} setFormData={setFormData} showToast={showToast} onBadge={setQuotesBadge}
+          onGoToTab={async (tab, sub) => { await switchTab(tab); if (sub) setLoanSubTab(sub); }}/>}
 
         {activeTab==='documents' && <>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
@@ -5666,35 +5687,55 @@ function CreditPanel({ loan, borrowers, formData, setFormData, showToast }) {
 
 // ─────────────────────────────────────────────────────────────────
 // QUOTES TAB — insurance (and later title) quotes for a loan.
-// The MLO sends the four shared items to one or more providers, follows
-// the request, reads the submitted quotes, accepts or declines, and copies
-// an accepted premium into the proposed housing payment (never automatic).
+// The MLO sends the four shared items to one or more providers and follows
+// the request. Quotes reach the BORROWER the moment they are submitted; the
+// borrower accepts or declines in their portal (the MLO can only record a
+// decision the borrower gave outside it). An accepted premium becomes the
+// loan's homeowners-insurance figure and is locked; until then the figure is
+// the market estimate (or what the MLO typed / a MISMO file brought).
 // Providers work in their own portal (/insurance); this side never shows
-// the provider's market estimate.
+// the provider's market estimate, and providers never see the borrower thread.
 // ─────────────────────────────────────────────────────────────────
 const QUOTE_STATUS = {
-  requested: ['Requested', '#2563eb'], viewed: ['Viewed by provider', '#6b7280'], quoted: ['Quote received', '#d97706'], accepted: ['Accepted', '#059669'], declined: ['Declined', '#b91c1c'],
-  withdrawn: ['Withdrawn', '#6b7280'], declined_by_provider: ['Provider unable to quote', '#b91c1c'], expired: ['Expired', '#6b7280'], superseded: ['Superseded', '#9ca3af'],
+  requested: ['Requested', '#2563eb'], viewed: ['Viewed by provider', '#6b7280'], quoted: ['Waiting for borrower', '#d97706'], accepted: ['Accepted by borrower', '#059669'], declined: ['Declined by borrower', '#b91c1c'],
+  not_selected: ['Not selected', '#6b7280'], withdrawn: ['Withdrawn', '#6b7280'], declined_by_provider: ['Provider unable to quote', '#b91c1c'], expired: ['Expired', '#6b7280'], superseded: ['Superseded', '#9ca3af'],
 };
+const HOI_SOURCE = { estimate: ['Estimate', '#d97706', 'Market average for the ZIP — unofficial until the borrower accepts a quote'], file: ['From MISMO file', '#6b7280', 'Figure read from the imported MISMO file'], manual: ['Entered by you', '#2563eb', 'Typed on the Loan & Property tab'], quote: ['Official', '#059669', 'Borrower-accepted quote — locked'] };
 const qChip = s => { const [l, c] = QUOTE_STATUS[s] || [s, '#6b7280']; return <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: c + '22', color: c, whiteSpace: 'nowrap' }}>{l}</span>; };
 const qWhen = v => v ? new Date(v).toLocaleString() : '—';
 const qDay = v => v ? String(v).slice(0, 10) : '—';
 
-function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
+function QuotesTab({ loan, formData, setFormData, showToast, onBadge, onGoToTab }) {
   const [data, setData] = useState(null);
   const [providers, setProviders] = useState([]);
   const [picked, setPicked] = useState({});
   const [disclosed, setDisclosed] = useState(false);
   const [busy, setBusy] = useState(null);
-  const [openReq, setOpenReq] = useState(null);     // request id whose thread is open
-  const [thread, setThread] = useState(null);
-  const [msg, setMsg] = useState('');
-  const [declineFor, setDeclineFor] = useState(null);
-  const [reason, setReason] = useState('');
+  const [drafts, setDrafts] = useState({});         // request id -> message being typed
+  const [recordFor, setRecordFor] = useState(null);     // quote id: "record the borrower's decision" form open
+  const [record, setRecord] = useState({ decision: 'accepted', how: '', reason: '' });
+  const [hideFor, setHideFor] = useState(null);         // quote id: hide-from-borrower form open
+  const [hideReason, setHideReason] = useState('');
+  const [bdrafts, setBdrafts] = useState({});           // request id -> reply to the borrower being typed
+  const [unlockOpen, setUnlockOpen] = useState(false); const [unlockReason, setUnlockReason] = useState('');
 
   const load = useCallback(() => {
     if (!loan?.id) return;
-    apiFetch(`/api/quotes/loan/${loan.id}`).then(d => { setData(d); onBadge && onBadge(d.badge || 0); }).catch(e => { setData({ error: e.message, requests: [] }); });
+    apiFetch(`/api/quotes/loan/${loan.id}`).then(async d => {
+      setData(d); onBadge && onBadge(d.badge || 0);
+      // Threads are always on screen, so provider messages count as read as soon as the tab shows them.
+      // The estimate may have been filled in server-side: keep the editor's HOI field in step (unless the MLO typed one).
+      if (d.hoi && d.hoi.amount != null) setFormData(p => (String(p.pmt_hoi || '') !== String(d.hoi.amount) && (d.hoi.locked || !p.pmt_hoi || d.hoi.source !== 'manual')) ? { ...p, pmt_hoi: String(d.hoi.amount), hoiMeta: d.hoi } : { ...p, hoiMeta: d.hoi });
+      const unread = (d.requests || []).filter(r => r.messages_unread > 0 || r.borrower_messages_unread > 0);
+      if (unread.length) {
+        await Promise.all(unread.map(r => Promise.all([
+          r.messages_unread > 0 ? apiFetch(`/api/quotes/request/${r.id}`).catch(() => null) : null,
+          r.borrower_messages_unread > 0 ? apiFetch(`/api/quotes/request/${r.id}/borrower-read`, { method: 'POST', body: {} }).catch(() => null) : null,
+        ])));
+        const d2 = await apiFetch(`/api/quotes/loan/${loan.id}`).catch(() => null);
+        if (d2) { setData(d2); onBadge && onBadge(d2.badge || 0); }
+      }
+    }).catch(e => { setData({ error: e.message, requests: [] }); });
     apiFetch('/api/quotes/providers').then(p => { setProviders(p); setPicked(x => Object.keys(x).length ? x : Object.fromEntries(p.map(q => [q.id, true]))); }).catch(() => setProviders([]));
   }, [loan?.id]);
   useEffect(load, [load]);
@@ -5716,29 +5757,52 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
     finally { setBusy(null); }
   };
   const withdraw = async (r) => { setBusy(r.id); try { await apiFetch(`/api/quotes/request/${r.id}/withdraw`, { method: 'POST', body: {} }); showToast(`Request ${r.request_no} withdrawn`); load(); } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); } };
-  const decide = async (q, status) => {
-    setBusy(q.id);
-    try { await apiFetch(`/api/quotes/quote/${q.id}/${status === 'accepted' ? 'accept' : 'decline'}`, { method: 'POST', body: { reason } }); showToast(`✓ Quote ${q.quote_id} ${status}`); setDeclineFor(null); setReason(''); load(); }
-    catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); }
-  };
-  const useQuote = async (q) => {
+  // The MLO records a decision the borrower gave by phone / e-mail / in person.
+  const recordDecision = async (q) => {
+    if (!record.how.trim()) { showToast('Say how the borrower gave the decision (e.g. "By phone with Ana, 10/24")'); return; }
     setBusy(q.id);
     try {
-      const r = await apiFetch(`/api/quotes/quote/${q.id}/use`, { method: 'POST', body: {} });
-      setFormData(p => ({ ...p, pmt_hoi: String(r.pmt_hoi), hoiQuoteId: r.hoi_quote_id }));
-      showToast(`✓ Homeowners insurance set to $${money2(r.pmt_hoi)}/mo from ${q.quote_id} — review the payment and Save`); load();
+      const r = await apiFetch(`/api/quotes/quote/${q.id}/decision`, { method: 'POST', body: { decision: record.decision, onBehalfNote: record.how.trim(), reason: record.reason } });
+      if (r.hoi) setFormData(p => ({ ...p, pmt_hoi: r.hoi.amount != null ? String(r.hoi.amount) : '', hoiMeta: r.hoi }));
+      showToast(record.decision === 'accepted' ? `✓ ${q.quote_id} recorded as accepted — homeowners insurance is now $${money2(r.hoi?.amount)}/mo and locked` : `${q.quote_id} recorded as declined`);
+      setRecordFor(null); setRecord({ decision: 'accepted', how: '', reason: '' }); load();
     } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); }
   };
-  const openThread = async (r) => {
-    if (openReq === r.id) { setOpenReq(null); setThread(null); return; }
-    try { const t = await apiFetch(`/api/quotes/request/${r.id}`); setThread(t); setOpenReq(r.id); load(); } catch (e) { showToast('⚠ ' + e.message); }
+  const hide = async (q, on) => {
+    setBusy(q.id);
+    try {
+      await apiFetch(`/api/quotes/quote/${q.id}/${on ? 'hide' : 'unhide'}`, { method: 'POST', body: { reason: hideReason } });
+      showToast(on ? `${q.quote_id} is hidden from the borrower` : `${q.quote_id} is visible to the borrower again`); setHideFor(null); setHideReason(''); load();
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); } finally { setBusy(null); }
   };
-  const sendMsg = async () => {
-    if (!msg.trim() || !openReq) return;
-    try { const t = await apiFetch(`/api/quotes/request/${openReq}/messages`, { method: 'POST', body: { body: msg } }); setThread(t); setMsg(''); } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
+  const replyBorrower = async (r) => {
+    const text = (bdrafts[r.id] || '').trim(); if (!text) return;
+    try {
+      const t = await apiFetch(`/api/quotes/request/${r.id}/borrower-messages`, { method: 'POST', body: { body: text } });
+      setBdrafts(d => ({ ...d, [r.id]: '' }));
+      setData(d => d ? { ...d, requests: d.requests.map(x => x.id === r.id ? { ...x, borrower_messages: t.borrower_messages, borrower_messages_total: (t.borrower_messages || []).length } : x) } : d);
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
+  };
+  const unlock = async () => {
+    if (!unlockReason.trim()) { showToast('A reason is required to unlock the figure'); return; }
+    try {
+      const h = await apiFetch(`/api/quotes/hoi/${loan.id}/unlock`, { method: 'POST', body: { reason: unlockReason.trim() } });
+      setFormData(p => ({ ...p, hoiMeta: h })); setUnlockOpen(false); setUnlockReason(''); showToast('Homeowners insurance figure unlocked — you can edit it on Loan & Property'); load();
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
+  };
+  const sendMsg = async (r) => {
+    const text = (drafts[r.id] || '').trim();
+    if (!text) return;
+    try {
+      const t = await apiFetch(`/api/quotes/request/${r.id}/messages`, { method: 'POST', body: { body: text } });
+      setDrafts(d => ({ ...d, [r.id]: '' }));
+      setData(d => d ? { ...d, requests: d.requests.map(x => x.id === r.id ? { ...x, messages: t.messages, messages_total: (t.messages || []).length } : x) } : d);
+    } catch (e) { showToast('⚠ ' + (e.data?.error || e.message)); }
   };
 
-  const Section = ({ type, title, blurb, comingSoon }) => {
+  // Plain render function, not a nested component: a component defined inside QuotesTab would be a new
+  // type on every render, remounting the whole section (and dropping input focus) on each keystroke.
+  const renderSection = ({ type, title, blurb, comingSoon }) => {
     const list = byType(type);
     return (
       <div style={{ marginBottom: 28 }}>
@@ -5746,6 +5810,26 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
         <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>{blurb}</div>
         {comingSoon ? <div style={{ padding: 18, border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', color: 'var(--text-3)', fontSize: 13 }}>Title quotes will use the same flow — coming next.</div> : (
           <>
+            {/* The figure on the loan */}
+            {data?.hoi && (() => {
+              const h = data.hoi; const [lbl, col, tip] = HOI_SOURCE[h.source] || ['Not set', '#6b7280', 'No homeowners-insurance figure yet'];
+              const primary = (data.borrowers || []).find(b => b.role === 'primary');
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', border: `1px solid ${h.locked ? '#a7f3d0' : 'var(--border)'}`, background: h.locked ? '#f0fdf4' : '#fff', borderRadius: 'var(--radius-lg)', padding: '10px 16px', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Homeowners insurance on this loan</div>
+                    <div style={{ fontSize: 20, fontWeight: 800 }}>{h.amount != null ? `$${money2(h.amount)}` : '—'}<span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}> / month</span></div>
+                    <span title={tip} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: col + '22', color: col }}>{h.locked ? '🔒 ' : ''}{lbl}{h.quote_id ? ` · ${h.quote_id}` : ''}</span>
+                    {h.note && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{h.note}</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {!h.locked && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{primary ? `${primary.name} decides in the borrower portal` : 'No borrower portal account yet — you can record the borrower\'s decision below'}</span>}
+                    {h.locked && !unlockOpen && <button className="btn btn-sm" onClick={() => setUnlockOpen(true)} title="Frees the figure so it can be edited again (logged with your reason)">Unlock</button>}
+                    {unlockOpen && <><input className="form-input" style={{ width: 260 }} value={unlockReason} onChange={e => setUnlockReason(e.target.value)} placeholder="Why? e.g. borrower bought a policy elsewhere" /><button className="btn btn-sm btn-danger" onClick={unlock}>Unlock</button><button className="btn btn-sm" onClick={() => { setUnlockOpen(false); setUnlockReason(''); }}>Cancel</button></>}
+                  </div>
+                </div>
+              );
+            })()}
             {/* Request panel */}
             <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 16px', background: '#0f1623', color: '#fff' }}>
@@ -5764,7 +5848,18 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
                   {data?.snapshot && <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
                     <div>Loan ID <strong>{data.snapshot.loanNumber}</strong></div>
                     {data.snapshot.borrowers.map(b => <div key={b.slot}>{b.label}: <strong>{b.firstName} {b.lastName}</strong></div>)}
-                    <div>Property: <strong>{[data.snapshot.property.street, data.snapshot.property.unit, data.snapshot.property.city, data.snapshot.property.state, data.snapshot.property.zip].filter(Boolean).join(', ') || '—'}</strong></div>
+                    {(() => {
+                      // Show the full address the provider will receive, part by part, so a missing city/state/ZIP is obvious.
+                      const pr = data.snapshot.property || {};
+                      const miss = (label) => <em style={{ color: '#b45309', fontStyle: 'normal' }}>{label} missing</em>;
+                      const line1 = [pr.street, pr.unit].filter(Boolean).join(', ');
+                      const complete = pr.street && pr.city && pr.state && /^\d{5}$/.test(pr.zip || '');
+                      return <div>
+                        <div>Property: <strong>{line1 || miss('street')}</strong></div>
+                        <div style={{ paddingLeft: 58 }}><strong>{pr.city || miss('city')}, {pr.state || miss('state')} {pr.zip || miss('ZIP')}</strong></div>
+                        {!complete && <div style={{ marginTop: 4, color: '#b45309' }}>Complete the address under Loan & Property → Property Info{onGoToTab && <> · <a href="#" style={{ color: 'var(--accent)' }} onClick={async e => { e.preventDefault(); await onGoToTab('loan', 'property'); setTimeout(() => document.getElementById('subject-property')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); }}>open it</a></>}</div>}
+                      </div>;
+                    })()}
                   </div>}
                 </div>
               </div>
@@ -5789,11 +5884,10 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
                       <span style={{ fontSize: 12, color: 'var(--text-3)' }}>sent {qWhen(r.requested_at)} by {r.mlo?.name}{r.viewed_at ? ` · viewed ${qWhen(r.viewed_at)}` : ''}</span>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-sm" onClick={() => openThread(r)}>{openReq === r.id ? 'Hide messages' : `Messages${r.messages_total ? ` (${r.messages_total}${r.messages_unread ? `, ${r.messages_unread} new` : ''})` : ''}`}</button>
                       {isOpen && <button className="btn btn-sm" disabled={busy === r.id} onClick={() => withdraw(r)}>Withdraw</button>}
                     </div>
                   </div>
-                  {r.close_reason && <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>{r.close_reason}</div>}
+                  {r.close_reason && <div style={{ fontSize: 12, color: r.status === 'declined_by_provider' ? '#b91c1c' : 'var(--text-3)', marginTop: 4 }}>{r.close_reason}</div>}
 
                   {latest && latest.status !== 'superseded' && (
                     <div style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px', background: latest.status === 'accepted' ? '#f0fdf4' : 'var(--cream)' }}>
@@ -5803,17 +5897,30 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
                           <span style={{ fontSize: 13, color: 'var(--text-2)' }}>${money2(latest.annual_premium)} / year</span>
                           <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{latest.quote_id}</span>{qChip(latest.status)}
                         </div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {latest.hidden_at && <span title={latest.hidden_reason || ''} style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '2px 9px', borderRadius: 10 }}>Hidden from borrower</span>}
+                          {latest.status === 'accepted' && data?.hoi?.hoi_quote_pk === latest.id && <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>🔒 Homeowners insurance figure</span>}
                           {latest.has_pdf && <a className="btn btn-sm" href={`${API_URL}/api/quotes/quote/${latest.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>}
-                          {latest.status === 'quoted' && <button className="btn btn-sm btn-primary" disabled={busy === latest.id} onClick={() => decide(latest, 'accepted')}>Accept</button>}
-                          {latest.status === 'quoted' && <button className="btn btn-sm" disabled={busy === latest.id} onClick={() => setDeclineFor(declineFor === latest.id ? null : latest.id)}>Decline</button>}
-                          {latest.status === 'accepted' && (data?.hoi?.hoi_quote_id === latest.id
-                            ? qChip('accepted') && <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>✓ Used as homeowners insurance</span>
-                            : <button className="btn btn-sm btn-primary" disabled={busy === latest.id} onClick={() => useQuote(latest)} title="Writes the monthly premium into Proposed Monthly Payment → Homeowners insurance">Use as homeowners insurance</button>)}
+                          {['quoted', 'not_selected', 'accepted'].includes(latest.status) && !latest.hidden_at && <button className="btn btn-sm" disabled={busy === latest.id} onClick={() => { setRecordFor(recordFor === latest.id ? null : latest.id); setRecord({ decision: latest.status === 'accepted' ? 'declined' : 'accepted', how: '', reason: '' }); }} title="Only when the borrower gave you the decision outside the portal">Record borrower's decision</button>}
+                          {['quoted', 'not_selected'].includes(latest.status) && (latest.hidden_at
+                            ? <button className="btn btn-sm" disabled={busy === latest.id} onClick={() => hide(latest, false)}>Show to borrower</button>
+                            : <button className="btn btn-sm" disabled={busy === latest.id} onClick={() => { setHideFor(hideFor === latest.id ? null : latest.id); setHideReason(''); }} title="The borrower will not see this quote">Hide from borrower</button>)}
                         </div>
                       </div>
-                      {declineFor === latest.id && (
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}><input className="form-input" style={{ flex: 1 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (optional) — the provider will see it" /><button className="btn btn-sm btn-danger" onClick={() => decide(latest, 'declined')}>Confirm decline</button></div>)}
+                      {recordFor === latest.id && (
+                        <div style={{ marginTop: 8, padding: '8px 10px', background: '#fff', border: '1px dashed var(--border)', borderRadius: 'var(--radius)', fontSize: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>Record the borrower's decision on {latest.quote_id} <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>— use this only when the borrower told you outside the portal; it is logged as given on their behalf.</span></div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <label className="check-row" style={{ margin: 0 }}><input type="radio" name={`dec-${latest.id}`} checked={record.decision === 'accepted'} onChange={() => setRecord(x => ({ ...x, decision: 'accepted' }))} disabled={latest.status === 'accepted'} /> Accepted</label>
+                            <label className="check-row" style={{ margin: 0 }}><input type="radio" name={`dec-${latest.id}`} checked={record.decision === 'declined'} onChange={() => setRecord(x => ({ ...x, decision: 'declined' }))} /> Declined</label>
+                            <input className="form-input" style={{ flex: 1, minWidth: 220 }} value={record.how} onChange={e => setRecord(x => ({ ...x, how: e.target.value }))} placeholder="How / when — e.g. By phone with Ana, 10/24 3:10 PM" />
+                            {record.decision === 'declined' && <input className="form-input" style={{ flex: 1, minWidth: 180 }} value={record.reason} onChange={e => setRecord(x => ({ ...x, reason: e.target.value }))} placeholder="Borrower's reason (optional, provider never sees it)" />}
+                            <button className="btn btn-sm btn-primary" disabled={busy === latest.id || !record.how.trim()} onClick={() => recordDecision(latest)}>Save</button>
+                            <button className="btn btn-sm" onClick={() => setRecordFor(null)}>Cancel</button>
+                          </div>
+                        </div>)}
+                      {hideFor === latest.id && (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}><input className="form-input" style={{ flex: 1 }} value={hideReason} onChange={e => setHideReason(e.target.value)} placeholder="Why hide it? (for your records — the borrower and provider don't see this)" /><button className="btn btn-sm btn-danger" disabled={!hideReason.trim()} onClick={() => hide(latest, true)}>Hide</button><button className="btn btn-sm" onClick={() => setHideFor(null)}>Cancel</button></div>)}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '4px 14px', marginTop: 8, fontSize: 12 }}>
                         <div><span style={{ color: 'var(--text-3)' }}>Dwelling </span>{latest.dwelling_coverage != null ? '$' + money2(latest.dwelling_coverage) : '—'}</div>
                         <div><span style={{ color: 'var(--text-3)' }}>Other structures </span>{latest.other_structures != null ? '$' + money2(latest.other_structures) : '—'}</div>
@@ -5826,19 +5933,37 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
                         <div><span style={{ color: 'var(--text-3)' }}>Valid until </span><span style={{ color: latest.status === 'expired' ? '#b91c1c' : undefined }}>{qDay(latest.valid_until)}</span></div>
                       </div>
                       {latest.notes && <div style={{ fontSize: 12, marginTop: 6, fontStyle: 'italic', color: 'var(--text-2)' }}>{latest.notes}</div>}
-                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Submitted {qWhen(latest.submitted_at)} by {latest.submitted_by}{latest.decided_at ? ` · ${latest.status} ${qWhen(latest.decided_at)} by ${latest.decided_by}` : ''}{latest.decline_reason ? ` — ${latest.decline_reason}` : ''}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>Submitted {qWhen(latest.submitted_at)} by {latest.submitted_by}{latest.decided_at ? ` · ${(QUOTE_STATUS[latest.status] || [latest.status])[0].toLowerCase()} ${qWhen(latest.decided_at)}${latest.decided_by_name ? ` by ${latest.decided_by_name}` : ''}${latest.decided_by_type === 'mlo' ? ` (on the borrower's behalf${latest.on_behalf_note ? ': ' + latest.on_behalf_note : ''})` : ''}` : ''}{latest.decline_reason ? ` — borrower's note: “${latest.decline_reason}”` : ''}{latest.hidden_at ? ` · hidden from borrower ${qWhen(latest.hidden_at)}${latest.hidden_reason ? ': ' + latest.hidden_reason : ''}` : ''}</div>
                     </div>)}
                   {older.length > 0 && <details style={{ marginTop: 6, fontSize: 12, color: 'var(--text-2)' }}><summary style={{ cursor: 'pointer' }}>Earlier quotes ({older.length})</summary>
                     {older.map(q => <div key={q.id} style={{ padding: '3px 0', display: 'flex', gap: 8, alignItems: 'center' }}><span>{q.quote_id}</span>{qChip(q.status)}<span>${money2(q.monthly_premium)}/mo · ${money2(q.annual_premium)}/yr</span><span style={{ color: 'var(--text-3)' }}>{qWhen(q.submitted_at)}</span></div>)}</details>}
 
-                  {openReq === r.id && thread && (
+                  <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Messages with {r.provider?.name}{r.messages_total ? ` (${r.messages_total})` : ''}</div>
+                    {(r.messages || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6 }}>No messages yet. The agent can ask here if they need anything beyond what was shared.</div>}
+                    {(r.messages || []).map(m => (
+                      <div key={m.id} style={{ display: 'flex', justifyContent: m.sender_type === 'mlo' ? 'flex-end' : 'flex-start', marginBottom: 6 }}>
+                        <div style={{ maxWidth: '78%', background: m.sender_type === 'mlo' ? 'var(--accent-light)' : '#f3f4f6', borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{m.sender_name} · {qWhen(m.created_at)}{m.sender_type !== 'mlo' && !m.read_at ? <span style={{ marginLeft: 6, color: '#b91c1c', fontWeight: 700 }}>new</span> : null}</div>{m.body}</div></div>))}
+                    {isOpen || r.status === 'accepted' ? (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <input className="form-input" style={{ flex: 1 }} value={drafts[r.id] || ''} onChange={e => { const v = e.target.value; setDrafts(d => ({ ...d, [r.id]: v })); }} onKeyDown={e => { if (e.key === 'Enter') sendMsg(r); }} placeholder={`Message ${r.provider?.name}…`} />
+                        <button className="btn btn-sm btn-primary" disabled={!(drafts[r.id] || '').trim()} onClick={() => sendMsg(r)}>Send</button>
+                      </div>
+                    ) : <div style={{ fontSize: 11, color: 'var(--text-3)' }}>This request is closed — messaging is off.</div>}
+                  </div>
+                  {latest && (
                     <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                      {(thread.messages || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No messages yet.</div>}
-                      {(thread.messages || []).map(m => (
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Borrower's questions on this quote{r.borrower_messages_total ? ` (${r.borrower_messages_total})` : ''} <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— private between you and the borrower; {r.provider?.name} never sees it</span></div>
+                      {(r.borrower_messages || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 6 }}>No questions yet.</div>}
+                      {(r.borrower_messages || []).map(m => (
                         <div key={m.id} style={{ display: 'flex', justifyContent: m.sender_type === 'mlo' ? 'flex-end' : 'flex-start', marginBottom: 6 }}>
-                          <div style={{ maxWidth: '78%', background: m.sender_type === 'mlo' ? 'var(--accent-light)' : '#f3f4f6', borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
-                            <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{m.sender_name} · {qWhen(m.created_at)}</div>{m.body}</div></div>))}
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}><input className="form-input" style={{ flex: 1 }} value={msg} onChange={e => setMsg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendMsg(); }} placeholder={`Message ${r.provider?.name}…`} /><button className="btn btn-sm btn-primary" onClick={sendMsg}>Send</button></div>
+                          <div style={{ maxWidth: '78%', background: m.sender_type === 'mlo' ? 'var(--accent-light)' : '#fdf4ff', borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                            <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{m.sender_name} · {qWhen(m.created_at)}{m.sender_type === 'borrower' && !m.read_at ? <span style={{ marginLeft: 6, color: '#b91c1c', fontWeight: 700 }}>new</span> : null}</div>{m.body}</div></div>))}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <input className="form-input" style={{ flex: 1 }} value={bdrafts[r.id] || ''} onChange={e => { const v = e.target.value; setBdrafts(d => ({ ...d, [r.id]: v })); }} onKeyDown={e => { if (e.key === 'Enter') replyBorrower(r); }} placeholder="Reply to the borrower…" />
+                        <button className="btn btn-sm btn-primary" disabled={!(bdrafts[r.id] || '').trim()} onClick={() => replyBorrower(r)}>Send</button>
+                      </div>
                     </div>)}
                 </div>);
             })}
@@ -5850,8 +5975,8 @@ function QuotesTab({ loan, formData, setFormData, showToast, onBadge }) {
   if (data?.error) return <div style={{ color: '#b91c1c', fontSize: 13 }}>Could not load quotes: {data.error}</div>;
   return (
     <div>
-      <Section type="insurance" title="Insurance Quote" blurb="Homeowners insurance quotes from the providers connected to Jammie. The provider sees only the loan ID, borrower names and the property address." />
-      <Section type="title" title="Title Quote" blurb="Title and settlement quotes." comingSoon />
+      {renderSection({ type: 'insurance', title: 'Insurance Quote', blurb: 'Homeowners insurance quotes from the providers connected to Jammie. The provider sees only the loan ID, borrower names and the property address.' })}
+      {renderSection({ type: 'title', title: 'Title Quote', blurb: 'Title and settlement quotes.', comingSoon: true })}
     </div>
   );
 }
@@ -6099,6 +6224,27 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
                           <input className="form-input" readOnly value={link} onFocus={e=>e.target.select()} style={{fontSize:11}}/>
                           <button className="btn btn-sm" onClick={()=>copy(link)}>Copy</button>
                         </div>
+                      </div>
+                    )}
+                    {/* Once the account exists the invitation is used up — keep it on screen for the record, and give the sign-in link to re-share. */}
+                    {!link && acct && (
+                      <div style={{marginTop:10,display:'grid',gap:8}}>
+                        <div>
+                          <label className="form-label">Portal sign-in link <span style={{color:'var(--text-3)',fontWeight:400}}>· the borrower signs in with {acct.email || 'their e-mail'}</span></label>
+                          <div style={{display:'flex',gap:6}}>
+                            <input className="form-input" readOnly value={`${window.location.origin}/apply/login`} onFocus={e=>e.target.select()} style={{fontSize:11}}/>
+                            <button className="btn btn-sm" onClick={()=>copy(`${window.location.origin}/apply/login`)}>Copy</button>
+                          </div>
+                        </div>
+                        {inv?.url && (
+                          <div>
+                            <label className="form-label">Invitation link <span style={{color:'var(--text-3)',fontWeight:400}}>· used{inv.acceptedAt ? ` on ${new Date(inv.acceptedAt).toLocaleDateString()}` : ''} — opening it again just lands on sign-in</span></label>
+                            <div style={{display:'flex',gap:6}}>
+                              <input className="form-input" readOnly value={inv.url} onFocus={e=>e.target.select()} style={{fontSize:11,color:'var(--text-3)'}}/>
+                              <button className="btn btn-sm" onClick={()=>copy(inv.url)}>Copy</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     {pending && !link && (
