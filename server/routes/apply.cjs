@@ -287,6 +287,14 @@ router.put('/:loanId/form', async (req, res) => {
     }
 
     await conn.query(`UPDATE loans SET application_status='in_progress', updated_at=NOW() WHERE id=? AND application_status IN ('draft','invited')`, [loanId]);
+    // Live sync: tell the loan officer's open screen what changed (routes/sync.cjs polls this log).
+    const dataSaved = saved.filter(x => x !== 'progress');
+    if (dataSaved.length || body.completed === true) {
+      await conn.query('INSERT INTO loan_revisions SET ?', {
+        loan_id: loanId, source: 'borrower', actor_id: req.user.id, actor_name: req.user.name || req.user.email, slot,
+        sections: dataSaved.join(',').slice(0, 255) || 'progress', event: body.completed === true ? 'completed' : 'saved',
+      }).catch(() => {});   // the log must never block a borrower's save (e.g. before migration 22)
+    }
     await conn.commit();
     res.json({ ok: true, saved, savedAt: new Date().toISOString() });
   } catch (e) {

@@ -99,6 +99,7 @@ router.post('/import/:loan_id', async (req, res) => {
     // No figure in the file (and none locked on the loan): the market estimate fills it in.
     if (fileHoi == null) await Q.applyEstimateIfBlank(loanId).catch(() => null);
     hoi = await Q.hoiView(loanId).catch(() => null);
+    await db.query('INSERT INTO loan_revisions SET ?', { loan_id: loanId, source: 'mlo', actor_id: req.user?.id || null, actor_name: req.user?.name || null, sections: 'mismo', event: 'imported' }).catch(() => {});
     const [updatedLoan] = await db.query('SELECT * FROM loans WHERE id=?', [loanId]);
     res.json({ success: true, loan: updatedLoan[0], hoi, imported_fields: { loan: Object.keys(parsed.loan).concat(fileHoi != null ? ['pmt_hoi'] : []), form1003: Object.keys(parsed.form1003) } });
   } catch (e) {

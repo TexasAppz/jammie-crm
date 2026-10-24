@@ -13,7 +13,8 @@
 //   the data on screen and retry.
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { apiFetch, API_URL } from "../shared/api.js";
+import { apiFetch, API_URL, pollWhileVisible } from "../shared/api.js";
+import { newArrivalCue } from "../shared/cue.js";
 import { STEPS, US_STATES, PREV_ADDRESS_FIELDS, DECLARATIONS, DEMOGRAPHICS, visibleFields, missingIn, stepStatus, stepMissing, isEmpty } from "./steps.js";
 
 const CSS = `
@@ -336,19 +337,25 @@ export default function Application({ loanId, user, onExit, showToast }) {
   const locked = !!form?.locked;
 
   // ── load ──
+  const shapeForm = (d) => {
+    const flags = { ...(d.progress?.flags || {}) };
+    if (!flags._hasProperty) flags._hasProperty = d.shared?.sp_addr1 ? 'yes' : (d.shared?.purpose === 'Refinance' ? 'yes' : '');
+    const borrower = { ...d.borrower };
+    if (borrower.mailing_same_as_present === '' || borrower.mailing_same_as_present == null) borrower.mailing_same_as_present = 1;
+    if (!borrower.email) borrower.email = d.me?.email || '';
+    const shared = { ...d.shared };
+    if (!shared.purpose) shared.purpose = d.loan?.purpose || 'Purchase Home';
+    if (shared.num_units === '' || shared.num_units == null) shared.num_units = '1';
+    return { ...d, borrower, shared, flags };
+  };
+  const savedRef = useRef(null);   // the form as last loaded from / written to the server (live-sync baseline)
   useEffect(() => {
     let alive = true;
     apiFetch(`/api/apply/${loanId}/form`).then(d => {
       if (!alive) return;
-      const flags = { ...(d.progress?.flags || {}) };
-      if (!flags._hasProperty) flags._hasProperty = d.shared?.sp_addr1 ? 'yes' : (d.shared?.purpose === 'Refinance' ? 'yes' : '');
-      const borrower = { ...d.borrower };
-      if (borrower.mailing_same_as_present === '' || borrower.mailing_same_as_present == null) borrower.mailing_same_as_present = 1;
-      if (!borrower.email) borrower.email = d.me?.email || '';
-      const shared = { ...d.shared };
-      if (!shared.purpose) shared.purpose = d.loan?.purpose || 'Purchase Home';
-      if (shared.num_units === '' || shared.num_units == null) shared.num_units = '1';
-      setForm({ ...d, borrower, shared, flags });
+      const f = shapeForm(d);
+      savedRef.current = f;
+      setForm(f);
       // resume where they left off
       const i = STEPS.findIndex(s => s.id === d.lastSeenStep);
       if (i > 0) setStepIdx(i);
@@ -360,9 +367,18 @@ export default function Application({ loanId, user, onExit, showToast }) {
   const buildPayload = useCallback((parts, f, extra = {}) => {
     const p = { ...extra };
     const lists = {};
+    // borrower / shared: only the fields changed since the last save, so a screen that is a few
+    // seconds behind the loan officer never writes their edits back out (live sync, both directions).
+    const changedOnly = (part) => {
+      const mine = f[part] || {}, was = (savedRef.current || {})[part];
+      if (!was) return mine;
+      const out = {};
+      for (const k of Object.keys(mine)) if (JSON.stringify(mine[k] ?? null) !== JSON.stringify(was[k] ?? null)) out[k] = mine[k];
+      return out;
+    };
     for (const part of parts) {
-      if (part === 'borrower') p.borrower = f.borrower;
-      else if (part === 'shared') p.shared = f.shared;
+      if (part === 'borrower') { const d = changedOnly('borrower'); if (Object.keys(d).length) p.borrower = d; }
+      else if (part === 'shared') { const d = changedOnly('shared'); if (Object.keys(d).length) p.shared = d; }
       else if (part === 'declarations') p.declarations = f.declarations;
       else if (part === 'demographics') p.demographics = f.demographics;
       else if (f.lists && part in f.lists) lists[part] = f.lists[part];
@@ -385,6 +401,8 @@ export default function Application({ loanId, user, onExit, showToast }) {
     setSaveState('saving');
     try {
       await apiFetch(`/api/apply/${loanId}/form`, { method: 'PUT', body: buildPayload(parts, f, opts.extra) });
+      // Baseline for live sync: the parts just written now match the server.
+      savedRef.current = { ...(savedRef.current || f), ...Object.fromEntries(parts.filter(p => ['borrower', 'shared', 'declarations', 'demographics', 'flags'].includes(p)).map(p => [p, f[p]])), lists: { ...(savedRef.current?.lists || {}), ...Object.fromEntries(parts.filter(p => f.lists && p in f.lists).map(p => [p, f.lists[p]])) } };
       setSaveState(dirty.current.size ? 'dirty' : 'saved');
       return true;
     } catch (e) {
@@ -419,6 +437,55 @@ export default function Application({ loanId, user, onExit, showToast }) {
     document.addEventListener('visibilitychange', onVis);
     return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', onVis); clearTimeout(timer.current); };
   }, [loanId, buildPayload]);
+
+  // ── live sync: the loan officer's edits appear here without a reload ──
+  // A field the borrower changed and has not saved yet keeps the borrower's value (it is saved a
+  // second later anyway); everything else takes the server's value. Lists the borrower is editing
+  // are left alone until their save lands.
+  const syncRef = useRef({ since: null, off: false, busy: false });
+  const sameJson = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const mergeRemote = (server) => {
+    const f = formRef.current, base = savedRef.current || f;
+    const out = { ...server };
+    for (const part of ['borrower', 'shared', 'declarations', 'demographics']) {
+      const mine = f[part] || {}, was = base[part] || {}, srv = server[part] || {};
+      const merged = { ...srv };
+      for (const k of Object.keys(mine)) if (!sameJson(mine[k], was[k])) merged[k] = mine[k];   // my unsaved edit wins
+      out[part] = merged;
+    }
+    out.flags = { ...(server.flags || {}), ...(f.flags || {}) };
+    out.lists = { ...(server.lists || {}) };
+    for (const name of Object.keys(f.lists || {})) if (dirty.current.has(name) || !sameJson(f.lists[name], (base.lists || {})[name])) out.lists[name] = f.lists[name];
+    return out;
+  };
+  useEffect(() => {
+    syncRef.current.since = null; syncRef.current.off = false;
+    const tick = async () => {
+      const st = syncRef.current;
+      if (st.off || st.busy) return;
+      try {
+        // Take the starting point right away (before the form has even loaded) so a save that lands
+        // during the load is not missed; merging waits until the form is on screen.
+        if (st.since == null) { const h = await apiFetch(`/api/apply-sync/${loanId}/head`); st.since = h.head; return; }
+        if (!formRef.current) return;
+        const r = await apiFetch(`/api/apply-sync/${loanId}?since=${st.since}`);
+        if (!r.changes || !r.changes.length) { st.since = r.head; return; }
+        st.busy = true;
+        const d = await apiFetch(`/api/apply/${loanId}/form`);
+        const server = shapeForm(d);
+        const merged = mergeRemote(server);
+        savedRef.current = { ...server, lists: server.lists || {} };
+        setForm(merged);
+        st.since = r.head;
+        const by = r.changes[r.changes.length - 1].actor_name || 'Your loan officer';
+        const imported = r.changes.some(c => c.event === 'imported');
+        showToast && showToast(imported ? `${by} imported your application data — the form has been updated` : `${by} updated your application`);
+        if (server.locked && !formRef.current.locked) newArrivalCue({ count: 1 });
+      } catch (e) { if (e.status === 404 || e.status === 403) syncRef.current.off = true; }
+      finally { syncRef.current.busy = false; }
+    };
+    return pollWhileVisible(tick, 3000);
+  }, [loanId]);
 
   // ── edit helpers ──
   const setBorrower = (k, v) => { setForm(f => ({ ...f, borrower: { ...f.borrower, [k]: v } })); markDirty('borrower'); };

@@ -50,6 +50,9 @@ const GlobalStyles = () => (
     .filter-pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); font-size: 14px; font-weight: 500; border: none; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
     .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.6); }
+    /* live sync: a field the other party just changed */
+    .sync-flash { animation: syncFlash 2.4s ease-out; }
+    @keyframes syncFlash { 0% { background-color: #fef3c7 !important; box-shadow: 0 0 0 3px #fde68a; } 70% { background-color: #fef9c3; } 100% { background-color: transparent; box-shadow: none; } }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: var(--white); color: var(--text-2); border: 1px solid var(--border); }
@@ -2031,6 +2034,32 @@ function Section10GovtMonitoring({ data, setData, borrowers }) {
   </>;
 }
 
+// ── live-sync helpers (MLO editor) ───────────────────────────────────────────────────────────
+function snapshotInputs() {
+  return [...document.querySelectorAll('.f1003-wrap input, .f1003-wrap select, .f1003-wrap textarea')]
+    .map(el => ({ el, v: (el.type === 'checkbox' || el.type === 'radio') ? String(el.checked) : el.value }));
+}
+/** Flash the inputs whose value changed between two snapshots (React keeps the same nodes, so match by element). */
+function flashChangedInputs(before) {
+  if (!before) return;
+  const was = new Map(before.map(x => [x.el, x.v]));
+  for (const { el, v } of snapshotInputs()) {
+    if (was.has(el) && was.get(el) !== v && document.activeElement !== el) {
+      el.classList.remove('sync-flash'); void el.offsetWidth; el.classList.add('sync-flash');
+      setTimeout(() => el.classList.remove('sync-flash'), 2600);
+    }
+  }
+}
+const SYNC_SECTION_LABEL = { borrower: 'Borrower info', shared: 'Loan & property', loan: 'Loan & property', incomes: 'Employment & income', assets: 'Bank accounts & assets', liabilities: 'Debts & payments', reos: 'Real estate owned', declarations: 'Declarations', demographics: 'Demographic information', coborrowers: 'Co-borrower info', prev_addresses: 'Previous addresses', mismo: 'MISMO import' };
+const SYNC_SECTION_TAB = { borrower: 'borrower', declarations: 'borrower', demographics: 'borrower', coborrowers: 'borrower', prev_addresses: 'borrower', incomes: 'financial', assets: 'financial', liabilities: 'financial', reos: 'financial', shared: 'loan', loan: 'loan', mismo: 'loan' };
+const humanizeKey = k => {
+  const m = String(k).match(/^b(\d+)\.(.+)$/);
+  const seat = m ? (m[1] === '0' ? 'Borrower · ' : `Co-borrower ${m[1]} · `) : '';
+  const base = (m ? m[2] : String(k)).replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  return seat + base.charAt(0).toUpperCase() + base.slice(1);
+};
+const fmtSyncVal = v => Array.isArray(v) ? `(${v.length} entr${v.length === 1 ? 'y' : 'ies'})` : (v === null || v === undefined || v === '') ? '— empty —' : typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v);
+
 function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   const [borrowers, setBorrowers] = useState([emptyBorrower1003('Borrower')]);
   const [activeBIdx, setActiveBIdx] = useState(0);
@@ -2062,8 +2091,9 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   // ── Load data from BOTH loans table AND 1003 DB — used on open,
   // and again after a MISMO import so the UI updates in place
   // (no full page reload, no lost navigation context) ──────────
+  const [loadSeq, setLoadSeq] = useState(0);   // bumps when a (re)load has fully landed in state — the sync baseline is taken then
   const loadLoanData = useCallback((loanRow) => {
-    if (!loanRow.id) { setLoading(false); return; }
+    if (!loanRow.id) { setLoading(false); return Promise.resolve(); }
 
     // ── Step 1: Pre-fill from loans table (instant, no API needed) ──
     // Split "Yusmari Rosario Noguera" → firstName="Yusmari" lastName="Rosario Noguera"
@@ -2139,18 +2169,20 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
 
     // Pre-fill borrower name from loans table as fallback
     if (firstFromLoan) {
-      setBorrowers([{
+      // Only fill a blank seat — on a live-sync reload the seat already holds the borrower's data
+      // and must not flicker to empty while the 1003 row is re-read.
+      setBorrowers(prev => (prev[0] && prev[0].firstName) ? prev : [{
         ...emptyBorrower1003('Borrower'),
         firstName: firstFromLoan,
         lastName:  lastFromLoan,
-      }]);
+      }, ...prev.slice(1)]);
     }
 
     // ── Step 2: Override with full 1003 DB record if it exists ──────
-    db.form1003.getByLoan(loanRow.id)
+    const p1003 = db.form1003.getByLoan(loanRow.id)
       .then(existing => {
         if (existing && existing.id) {
-          setBorrowers([{
+          setBorrowers(prev => [{
             ...emptyBorrower1003('Borrower'),
             firstName:     existing.first_nm       || firstFromLoan,
             middleName:    existing.middle_nm       || '',
@@ -2189,7 +2221,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
             presentCountry:existing.address_country || 'United States',
             presentYears:  existing.current_how_long_addr || '',
             presentOwn:    existing.housing         || '',
-          }]);
+          }, ...prev.slice(1)]);   // keep co-borrower seats; the co-borrower fetch below refreshes them
           setFormData(p => {
             // ── Restore full financial arrays from JSON (primary source) ──
             const parseArr = (raw) => {
@@ -2298,9 +2330,10 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
       .catch(() => {})
       .finally(() => { setLoading(false); refreshHoi(loanRow.id); });
     // Co-borrowers (slots 2..4) — what the MLO added here or what they entered in the portal.
-    apiFetch(`/api/coborrowers/${loanRow.id}`)
-      .then(rows => { if (Array.isArray(rows) && rows.length) setBorrowers(p => [p[0], ...rows.map(coborrowerFromRow)]); })
+    const pCob = apiFetch(`/api/coborrowers/${loanRow.id}`)
+      .then(rows => { if (Array.isArray(rows)) setBorrowers(p => [p[0], ...rows.map(coborrowerFromRow)]); })
       .catch(() => {});
+    return Promise.all([p1003, pCob]).then(() => setLoadSeq(n => n + 1));
   }, []);
 
   useEffect(() => { loadLoanData(loan); }, [loan.id, loadLoanData]);
@@ -2319,7 +2352,29 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   };
 
   // ── DTI CALCULATION — live from Income, PITI, Liabilities ───────
-  const calcDTI = () => {
+  // Pure versions (take the data they need) so the save routine can diff "what is on screen now"
+  // against "what was last loaded/saved" — the live-sync save sends only the columns that changed.
+  function calcLtvBasis(fd) {
+    const price = parseFloat(fd.salesPrice) || 0;
+    const appr  = parseFloat(fd.appraisedVal) || 0;
+    if (fd.mortgagePurpose === 'Refinance') return appr;
+    if (price > 0 && appr > 0) return Math.min(price, appr);
+    return price || appr;
+  }
+  function calcAutoPI(fd) {
+    const principal = parseFloat(fd.baseLoan) || 0;
+    const annualRate = parseFloat(fd.rate) || 0;
+    const months = parseInt(fd.amortTerm, 10) || 360;
+    if (principal <= 0 || months <= 0) return 0;
+    if (annualRate === 0) return principal / months;
+    const r = annualRate / 100 / 12;
+    return principal * (r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
+  }
+  function calcEffectivePI(fd) {
+    return fd.pmt_first_mortgage !== '' && fd.pmt_first_mortgage != null ? (parseFloat(fd.pmt_first_mortgage) || 0) : calcAutoPI(fd);
+  }
+  const calcDTI = () => calcDTIFor(formData);
+  function calcDTIFor(formData) {
     const income = (formData.incomes||[]).reduce((a,x)=>
       a+['base','overtime','bonuses','commission','tips','seasonal','otherW2']
         .reduce((b,k)=>b+(parseFloat(x[k])||0),0),0);
@@ -2339,7 +2394,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     const front = income>0 ? (housing/income)*100 : 0;
     const back  = income>0 ? ((housing+otherDebts)/income)*100 : 0;
     return { income, housing, otherDebts, front, back, pi };
-  };
+  }
   const dtiColor = (v) => v<=0 ? '#94a3b8' : v<=36 ? '#22c55e' : v<=43 ? '#f97316' : '#ef4444';
   const [showDti, setShowDti] = useState(false);
 
@@ -2347,293 +2402,103 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     try {
       const b = borrowers[0];
       const fullName = [b.firstName, b.middleName, b.lastName].filter(Boolean).join(' ') || 'New Borrower';
-
-      // ── 1. Update loans table ─────────────────────────────────────
-      if (loan.id) {
-        await db.loans.update(loan.id, {
-          borrower:         fullName,
-          loan_status:      loan.loan_status || 'App Intake',
-          loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
-          rate:             parseFloat(formData.rate)         || loan.rate        || null,
-          ltv:              ltvBasis > 0
-                              ? parseFloat(((parseFloat(formData.baseLoan||0)/ltvBasis)*100).toFixed(2))
-                              : loan.ltv || null,
-          sales_price:           parseFloat(formData.salesPrice)          || null,
-          appraised_value:       parseFloat(formData.appraisedVal)        || null,
-          down_payment:          parseFloat(formData.downPayment)         || null,
-          existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
-          refinance_program:     formData.refinanceProgram || null,
-          purpose:               formData.mortgagePurpose || 'Purchase Home',
-          refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
-          pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
-          estimated_closing_costs: parseFloat(formData.estimated_closing_costs) || null,
-          prepaid_items_estimated: parseFloat(formData.prepaid_items_estimated) || null,
-          lender_credit_amount:    parseFloat(formData.lender_credit_amount)    || null,
-          cash_to_borrower:        parseFloat(formData.cash_to_borrower)        || null,
-          total_payoffs:           parseFloat(formData.total_payoffs)           || null,
-          subject_property: formData.spAddr1
-                              ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
-                              : loan.subject_property || 'TBD',
-          product:          formData.amortType && formData.mortgageType
-                              ? `${formData.mortgageType} ${formData.amortTerm==='360'?'30yr':formData.amortTerm==='180'?'15yr':formData.amortTerm+'mo'} ${formData.amortType}`
-                              : loan.product || 'TBD',
-          cash_out_purpose: formData.cashOutPurpose  || null,
-          lien_position:    formData.lienPosition    || 'First Lien',
-          amort_term:       parseInt(formData.amortTerm) || 360,
-          credit_score:     parseInt(formData.creditScore) || null,
-          credit_score_source: formData.creditScoreSource || null,
-          credit_score_date:   formData.creditScoreDate   || null,
-          credit_report_id:    formData.creditReportId    || null,
-          // Proposed Monthly Payment
-          pmt_hoi:              parseFloat(formData.pmt_hoi)              || null,
-          pmt_property_taxes:   parseFloat(formData.pmt_property_taxes)   || null,
-          pmt_mi:               parseFloat(formData.pmt_mi)               || null,
-          pmt_supplemental:     parseFloat(formData.pmt_supplemental)     || null,
-          pmt_association_dues: parseFloat(formData.pmt_association_dues) || null,
-          pmt_other:            parseFloat(formData.pmt_other)            || null,
-          pmt_other_desc:       formData.pmt_other_desc                   || null,
-          earnest_money_deposit:     parseFloat(formData.earnest_money_deposit)||null,
-          seller_credits:            parseFloat(formData.seller_credits)||null,
-          funds_for_borrower:        parseFloat(formData.funds_for_borrower)||null,
-          closing_costs_financed:    parseFloat(formData.closing_costs_financed)||null,
-          adjustments_other_credits: parseFloat(formData.adjustments_other_credits)||null,
-          dti_front:                 parseFloat(calcDTI().front.toFixed(2))||null,
-          dti_back:                  parseFloat(calcDTI().back.toFixed(2))||null,
-        });
-      }
-
-      // ── 2. Build full 1003 payload ────────────────────────────────
-      const payload = {
-        loan_id:        loan.id || null,
-        mlo_id:         1,
-        form_status:    'draft',
-        // Personal Info
-        email:          b.email         || '',
-        first_nm:       b.firstName     || '',
-        middle_nm:      b.middleName    || '',
-        last_nm:        b.lastName      || '',
-        ssn:            b.ssn           || '',
-        dob:            b.dob           || null,
-        citizenship:    b.citizenship   || '',
-        marital_status: b.maritalStatus || '',
-        num_borrowers:  borrowers.length,
-        // Address
-        address_street:  b.presentAddr1  || '',
-        address_unit:    b.presentUnit   || '',
-        address_city:    b.presentCity   || '',
-        address_state:   b.presentState  || '',
-        address_zip:     b.presentZip    || '',
-        address_country: b.presentCountry|| 'United States',
-        current_how_long_addr: parseFloat(b.presentYears) || null,
-        housing:         b.presentOwn    || '',
-        // Employment
-        employee_or_business_nm:         formData.incomes[0]?.employer   || '',
-        position_title:                  formData.incomes[0]?.position   || '',
-        position_start_date:             formData.incomes[0]?.startDate  || null,
-        gross_income_monthly_base:       parseFloat(formData.incomes[0]?.base)       || 0,
-        gross_income_monthly_overtime:   parseFloat(formData.incomes[0]?.overtime)   || 0,
-        gross_income_monthly_bonus:      parseFloat(formData.incomes[0]?.bonuses)    || 0,
-        gross_income_monthly_commission: parseFloat(formData.incomes[0]?.commission) || 0,
-        gross_income_monthly_other:      parseFloat(formData.incomes[0]?.otherW2)    || 0,
-        // Property Info (new fields)
-        num_units:            parseInt(formData.numUnits)   || 1,
-        construction_method:  formData.constructionMethod  || null,
-        acreage:              parseFloat(formData.acreage)  || null,
-        orig_cost:            parseFloat(formData.origCost) || null,
-        // Subject property address + detail (migration 07)
-        sp_addr1:         formData.spAddr1     || null,
-        sp_unit:          formData.spUnit      || null,
-        sp_city:          formData.spCity      || null,
-        sp_state:         formData.spState     || null,
-        sp_zip:           formData.spZip       || null,
-        sp_county:        formData.spCounty    || null,
-        prop_type:        formData.propType    || null,
-        attachment_type:  formData.attachType  || null,
-        occupancy:        formData.occupancy   || null,
-        year_built:       parseInt(formData.spYearBuilt)  || null,
-        year_acquired:    parseInt(formData.yearAcquired) || null,
-        cell_phone:       borrowers[0]?.cellPhone || null,
-        est_credit_score: borrowers[0]?.estCreditScore || null,
-        suffix:              b.suffix       || null,
-        alt_names:           (Array.isArray(b.altNames)&&b.altNames.length)?JSON.stringify(b.altNames):null,
-        num_dependents:      b.numDeps === '' ? null : parseInt(b.numDeps),
-        dependents_ages:     b.depAges      || null,
-        joined_to_borrower:  b.joined       || null,
-        tax_same_as:         b.taxSameAs    || null,
-        addr_same_as:        b.addrSameAs   || null,
-        is_veteran:          b.isVeteran ? 1 : 0,
-        is_disabled_vet:     b.isDisabledVet ? 1 : 0,
-        is_exempt_funding_fee: b.isExempt ? 1 : 0,
-        va_use_type:         b.vaUseType    || null,
-        mailing_same_as_present: b.mailingSame ? 1 : 0,
-        mailing_address_street:  b.mailingAddr1  || null,
-        mailing_address_unit_num:b.mailingUnit   || null,
-        mailing_address_city:    b.mailingCity   || null,
-        mailing_address_state:   b.mailingState  || null,
-        mailing_address_zip:     b.mailingZip    || null,
-        mailing_address_country: b.mailingCountry|| null,
-        prev_addresses_json: JSON.stringify(b.prevAddresses || []),
-        he_mortgage_pres: parseFloat(formData.mortPres) || null,
-        he_mortgage_prop: parseFloat(formData.mortProp) || null,
-        he_other_loans_pres: parseFloat(formData.otherLoans) || null,
-        he_other_loans_prop: parseFloat(formData.otherBPres) || null,
-        he_hazard_pres: parseFloat(formData.hazPres) || null,
-        he_hazard_prop: parseFloat(formData.hazProp) || null,
-        he_taxes_pres: parseFloat(formData.taxPres) || null,
-        he_taxes_prop: parseFloat(formData.taxProp) || null,
-        he_mi_pres: parseFloat(formData.miPres) || null,
-        he_mi_prop: parseFloat(formData.miProp) || null,
-        he_hoa_pres: parseFloat(formData.hoaPres) || null,
-        he_hoa_prop: parseFloat(formData.hoaProp) || null,
-        he_flood_pres: parseFloat(formData.floodPres) || null,
-        he_flood_prop: parseFloat(formData.floodProp) || null,
-        he_other_pres: parseFloat(formData.otherPres) || null,
-        he_other_prop: parseFloat(formData.otherProp) || null,
-        he_rent_pres: parseFloat(formData.rentPres) || null,
-        dot_land: parseFloat(formData.land) || null,
-        dot_improvements: parseFloat(formData.improvements) || null,
-        dot_refi_balance: parseFloat(formData.refiBalance) || null,
-        dot_cc_debts: parseFloat(formData.ccDebts) || null,
-        dot_closing_costs: parseFloat(formData.closingCosts) || null,
-        dot_discount: parseFloat(formData.discount) || null,
-        dot_financed_fees: parseFloat(formData.financedFees) || null,
-        dot_other_credits: parseFloat(formData.otherCredits) || null,
-        dot_other_loans: parseFloat(formData.otherBProp) || null,
-        // Title Info (new fields)
-        manner_title:     formData.mannerTitle    || null,
-        title_held_in:    formData.titleHeldIn    || null,
-        property_rights:  formData.propertyRights || null,
-        trust_info:           formData.trustInfo    || null,
-        vesting_read:         formData.vestingRead  || null,
-        // Declarations + Demographics (JSON, like incomes/liabilities/reos)
-        declarations_json:  JSON.stringify(formData.declarations   || []),
-        demographics_json:  JSON.stringify(formData.govtMonitoring || []),
-        // Loan Info (new fields)
-        lien_position:        formData.lienPosition || 'First Lien',
-        refi_type:            formData.refiType     || null,
-        cash_out_purpose:     formData.cashOutPurpose || null,
-        // Full financial arrays — persist ALL entries (incomes, assets, liabilities, REO)
-        incomes_json:         JSON.stringify(formData.incomes     || []),
-        assets_json:          JSON.stringify(formData.assets      || []),
-        liabilities_json:     JSON.stringify(formData.liabilities || []),
-        reos_json:            JSON.stringify(formData.reos        || []),
-      };
-
-      if (loan.id) {
-        const existing = await db.form1003.getByLoan(loan.id).catch(() => null);
-        if (existing && existing.id) {
-          await db.form1003.update(existing.id, payload);
-        } else {
-          await db.form1003.insert(payload);
-        }
-        await saveCoborrowers(loan.id, borrowers);
-      } else {
-        await db.form1003.insert(payload);
-      }
-
+      const r = await saveChanges({ silent: false });
       // Warn clearly if the save silently used offline/mock storage
       // instead of the real database — prevents data-loss going unnoticed.
       const apiOk = await checkApi();
-      if (apiOk) {
-        showToast(`✓ Saved — ${fullName}`);
-      } else {
-        showToast(`⚠ Server unreachable — "${fullName}" was NOT saved to the database!`);
-      }
+      if (!apiOk) showToast(`⚠ Server unreachable — "${fullName}" was NOT saved to the database!`);
+      else showToast(r && r.nothing ? `✓ Nothing new to save — ${fullName}` : `✓ Saved — ${fullName}`);
     } catch (err) {
       showToast(`⚠ Save failed: ${err.message}`);
     }
   };
 
-  // Auto-save silently when switching tabs
-  const autoSave = async () => {
-    setSaving(true);
-    try {
-      const b = borrowers[0];
-      const fullName = [b.firstName, b.middleName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower';
-      if (loan.id) {
-        // Update loans table
-        await db.loans.update(loan.id, {
+  // ── what the editor writes, as pure functions of (formData, borrowers) ──────────────────────
+  const buildLoanUpdate = (fd, bs) => {
+    const b = bs[0] || {};
+    return {
           borrower:         [b.firstName, b.middleName, b.lastName].filter(Boolean).join(' ') || loan.borrower || 'New Borrower',
-          loan_amount:      parseFloat(formData.baseLoan)     || loan.loan_amount || null,
-          rate:             parseFloat(formData.rate)         || loan.rate        || null,
-          ltv:              ltvBasis > 0
-                              ? parseFloat(((parseFloat(formData.baseLoan||0)/ltvBasis)*100).toFixed(2))
+          loan_amount:      parseFloat(fd.baseLoan)     || loan.loan_amount || null,
+          rate:             parseFloat(fd.rate)         || loan.rate        || null,
+          ltv:              calcLtvBasis(fd) > 0
+                              ? parseFloat(((parseFloat(fd.baseLoan||0)/calcLtvBasis(fd))*100).toFixed(2))
                               : loan.ltv || null,
-          sales_price:           parseFloat(formData.salesPrice)          || null,
-          appraised_value:       parseFloat(formData.appraisedVal)        || null,
-          down_payment:          parseFloat(formData.downPayment)         || null,
-          existing_liens_amount: parseFloat(formData.existingLiensAmount) || null,
-          refinance_program:     formData.refinanceProgram || null,
-          purpose:               formData.mortgagePurpose || 'Purchase Home',
-          refi_type:             formData.mortgagePurpose==='Refinance' ? (formData.refiType || null) : null,
-          pmt_first_mortgage:    effectivePI > 0 ? parseFloat(effectivePI.toFixed(2)) : null,
-          estimated_closing_costs: parseFloat(formData.estimated_closing_costs) || null,
-          prepaid_items_estimated: parseFloat(formData.prepaid_items_estimated) || null,
-          lender_credit_amount:    parseFloat(formData.lender_credit_amount)    || null,
-          cash_to_borrower:        parseFloat(formData.cash_to_borrower)        || null,
-          total_payoffs:           parseFloat(formData.total_payoffs)           || null,
-          subject_property: formData.spAddr1
-                              ? `${formData.spAddr1}${formData.spCity?', '+formData.spCity:''}${formData.spState?' '+formData.spState:''}`
+          sales_price:           parseFloat(fd.salesPrice)          || null,
+          appraised_value:       parseFloat(fd.appraisedVal)        || null,
+          down_payment:          parseFloat(fd.downPayment)         || null,
+          existing_liens_amount: parseFloat(fd.existingLiensAmount) || null,
+          refinance_program:     fd.refinanceProgram || null,
+          purpose:               fd.mortgagePurpose || 'Purchase Home',
+          refi_type:             fd.mortgagePurpose==='Refinance' ? (fd.refiType || null) : null,
+          pmt_first_mortgage:    calcEffectivePI(fd) > 0 ? parseFloat(calcEffectivePI(fd).toFixed(2)) : null,
+          estimated_closing_costs: parseFloat(fd.estimated_closing_costs) || null,
+          prepaid_items_estimated: parseFloat(fd.prepaid_items_estimated) || null,
+          lender_credit_amount:    parseFloat(fd.lender_credit_amount)    || null,
+          cash_to_borrower:        parseFloat(fd.cash_to_borrower)        || null,
+          total_payoffs:           parseFloat(fd.total_payoffs)           || null,
+          subject_property: fd.spAddr1
+                              ? `${fd.spAddr1}${fd.spCity?', '+fd.spCity:''}${fd.spState?' '+fd.spState:''}`
                               : loan.subject_property || 'TBD',
-          cash_out_purpose: formData.cashOutPurpose  || null,
-          lien_position:    formData.lienPosition    || 'First Lien',
-          amort_term:       parseInt(formData.amortTerm) || 360,
-          credit_score:     parseInt(formData.creditScore) || null,
-          credit_score_source: formData.creditScoreSource || null,
-          credit_score_date:   formData.creditScoreDate   || null,
-          credit_report_id:    formData.creditReportId    || null,
-          pmt_hoi:              parseFloat(formData.pmt_hoi)              || null,
-          pmt_property_taxes:   parseFloat(formData.pmt_property_taxes)   || null,
-          pmt_mi:               parseFloat(formData.pmt_mi)               || null,
-          pmt_supplemental:     parseFloat(formData.pmt_supplemental)     || null,
-          pmt_association_dues: parseFloat(formData.pmt_association_dues) || null,
-          pmt_other:            parseFloat(formData.pmt_other)            || null,
-          pmt_other_desc:       formData.pmt_other_desc                   || null,
-          earnest_money_deposit:     parseFloat(formData.earnest_money_deposit)||null,
-          seller_credits:            parseFloat(formData.seller_credits)||null,
-          funds_for_borrower:        parseFloat(formData.funds_for_borrower)||null,
-          closing_costs_financed:    parseFloat(formData.closing_costs_financed)||null,
-          adjustments_other_credits: parseFloat(formData.adjustments_other_credits)||null,
-          dti_front:                 parseFloat(calcDTI().front.toFixed(2))||null,
-          dti_back:                  parseFloat(calcDTI().back.toFixed(2))||null,
-        }).catch(()=>{});
-
-        // Update 1003 table
-        const payload = {
+          cash_out_purpose: fd.cashOutPurpose  || null,
+          lien_position:    fd.lienPosition    || 'First Lien',
+          amort_term:       parseInt(fd.amortTerm) || 360,
+          credit_score:     parseInt(fd.creditScore) || null,
+          credit_score_source: fd.creditScoreSource || null,
+          credit_score_date:   fd.creditScoreDate   || null,
+          credit_report_id:    fd.creditReportId    || null,
+          pmt_hoi:              parseFloat(fd.pmt_hoi)              || null,
+          pmt_property_taxes:   parseFloat(fd.pmt_property_taxes)   || null,
+          pmt_mi:               parseFloat(fd.pmt_mi)               || null,
+          pmt_supplemental:     parseFloat(fd.pmt_supplemental)     || null,
+          pmt_association_dues: parseFloat(fd.pmt_association_dues) || null,
+          pmt_other:            parseFloat(fd.pmt_other)            || null,
+          pmt_other_desc:       fd.pmt_other_desc                   || null,
+          earnest_money_deposit:     parseFloat(fd.earnest_money_deposit)||null,
+          seller_credits:            parseFloat(fd.seller_credits)||null,
+          funds_for_borrower:        parseFloat(fd.funds_for_borrower)||null,
+          closing_costs_financed:    parseFloat(fd.closing_costs_financed)||null,
+          adjustments_other_credits: parseFloat(fd.adjustments_other_credits)||null,
+          dti_front:                 parseFloat(calcDTIFor(fd).front.toFixed(2))||null,
+          dti_back:                  parseFloat(calcDTIFor(fd).back.toFixed(2))||null,
+    };
+  };
+  const build1003Payload = (fd, bs) => {
+    const b = bs[0] || {};
+    return {
           loan_id:        loan.id,   mlo_id: 1,   form_status: 'draft',
           first_nm:       b.firstName||'',         middle_nm:   b.middleName||'',
           last_nm:        b.lastName||'',           ssn:         b.ssn||'',
           dob:            b.dob||null,              citizenship: b.citizenship||'',
-          marital_status: b.maritalStatus||'',      num_borrowers: borrowers.length,
+          marital_status: b.maritalStatus||'',      num_borrowers: bs.length,
           address_street: b.presentAddr1||'',       address_unit:  b.presentUnit||'',
           address_city:   b.presentCity||'',        address_state: b.presentState||'',
           address_zip:    b.presentZip||'',         address_country: b.presentCountry||'United States',
           current_how_long_addr: parseFloat(b.presentYears)||null,
           housing:        b.presentOwn||'',
-          employee_or_business_nm:         formData.incomes[0]?.employer||'',
-          position_title:                  formData.incomes[0]?.position||'',
-          position_start_date:             formData.incomes[0]?.startDate||null,
-          gross_income_monthly_base:       parseFloat(formData.incomes[0]?.base)||0,
-          gross_income_monthly_overtime:   parseFloat(formData.incomes[0]?.overtime)||0,
-          gross_income_monthly_bonus:      parseFloat(formData.incomes[0]?.bonuses)||0,
-          gross_income_monthly_commission: parseFloat(formData.incomes[0]?.commission)||0,
-          gross_income_monthly_other:      parseFloat(formData.incomes[0]?.otherW2)||0,
+          employee_or_business_nm:         fd.incomes[0]?.employer||'',
+          position_title:                  fd.incomes[0]?.position||'',
+          position_start_date:             fd.incomes[0]?.startDate||null,
+          gross_income_monthly_base:       parseFloat(fd.incomes[0]?.base)||0,
+          gross_income_monthly_overtime:   parseFloat(fd.incomes[0]?.overtime)||0,
+          gross_income_monthly_bonus:      parseFloat(fd.incomes[0]?.bonuses)||0,
+          gross_income_monthly_commission: parseFloat(fd.incomes[0]?.commission)||0,
+          gross_income_monthly_other:      parseFloat(fd.incomes[0]?.otherW2)||0,
           // New fields
-          num_units:           parseInt(formData.numUnits)||1,
-          construction_method: formData.constructionMethod||null,
-          sp_addr1:        formData.spAddr1     || null,
-          sp_unit:         formData.spUnit      || null,
-          sp_city:         formData.spCity      || null,
-          sp_state:        formData.spState     || null,
-          sp_zip:          formData.spZip       || null,
-          sp_county:       formData.spCounty    || null,
-          prop_type:       formData.propType    || null,
-          attachment_type: formData.attachType  || null,
-          occupancy:       formData.occupancy   || null,
-          year_built:      parseInt(formData.spYearBuilt)  || null,
-          year_acquired:   parseInt(formData.yearAcquired) || null,
-          cell_phone:      borrowers[0]?.cellPhone || null,
-          est_credit_score: borrowers[0]?.estCreditScore || null,
+          num_units:           parseInt(fd.numUnits)||1,
+          construction_method: fd.constructionMethod||null,
+          sp_addr1:        fd.spAddr1     || null,
+          sp_unit:         fd.spUnit      || null,
+          sp_city:         fd.spCity      || null,
+          sp_state:        fd.spState     || null,
+          sp_zip:          fd.spZip       || null,
+          sp_county:       fd.spCounty    || null,
+          prop_type:       fd.propType    || null,
+          attachment_type: fd.attachType  || null,
+          occupancy:       fd.occupancy   || null,
+          year_built:      parseInt(fd.spYearBuilt)  || null,
+          year_acquired:   parseInt(fd.yearAcquired) || null,
+          cell_phone:      bs[0]?.cellPhone || null,
+          est_credit_score: bs[0]?.estCreditScore || null,
         suffix:              b.suffix       || null,
         alt_names:           (Array.isArray(b.altNames)&&b.altNames.length)?JSON.stringify(b.altNames):null,
         num_dependents:      b.numDeps === '' ? null : parseInt(b.numDeps),
@@ -2653,61 +2518,193 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         mailing_address_zip:     b.mailingZip    || null,
         mailing_address_country: b.mailingCountry|| null,
           prev_addresses_json: JSON.stringify(b.prevAddresses || []),
-          he_mortgage_pres: parseFloat(formData.mortPres) || null,
-          he_mortgage_prop: parseFloat(formData.mortProp) || null,
-          he_other_loans_pres: parseFloat(formData.otherLoans) || null,
-          he_other_loans_prop: parseFloat(formData.otherBPres) || null,
-          he_hazard_pres: parseFloat(formData.hazPres) || null,
-          he_hazard_prop: parseFloat(formData.hazProp) || null,
-          he_taxes_pres: parseFloat(formData.taxPres) || null,
-          he_taxes_prop: parseFloat(formData.taxProp) || null,
-          he_mi_pres: parseFloat(formData.miPres) || null,
-          he_mi_prop: parseFloat(formData.miProp) || null,
-          he_hoa_pres: parseFloat(formData.hoaPres) || null,
-          he_hoa_prop: parseFloat(formData.hoaProp) || null,
-          he_flood_pres: parseFloat(formData.floodPres) || null,
-          he_flood_prop: parseFloat(formData.floodProp) || null,
-          he_other_pres: parseFloat(formData.otherPres) || null,
-          he_other_prop: parseFloat(formData.otherProp) || null,
-          he_rent_pres: parseFloat(formData.rentPres) || null,
-          dot_land: parseFloat(formData.land) || null,
-          dot_improvements: parseFloat(formData.improvements) || null,
-          dot_refi_balance: parseFloat(formData.refiBalance) || null,
-          dot_cc_debts: parseFloat(formData.ccDebts) || null,
-          dot_closing_costs: parseFloat(formData.closingCosts) || null,
-          dot_discount: parseFloat(formData.discount) || null,
-          dot_financed_fees: parseFloat(formData.financedFees) || null,
-          dot_other_credits: parseFloat(formData.otherCredits) || null,
-          dot_other_loans: parseFloat(formData.otherBProp) || null,
-          manner_title:    formData.mannerTitle    || null,
-          title_held_in:   formData.titleHeldIn    || null,
-          property_rights: formData.propertyRights || null,
-          declarations_json: JSON.stringify(formData.declarations   || []),
-          demographics_json: JSON.stringify(formData.govtMonitoring || []),
-          acreage:             parseFloat(formData.acreage)||null,
-          orig_cost:           parseFloat(formData.origCost)||null,
-          trust_info:          formData.trustInfo||null,
-          vesting_read:        formData.vestingRead||null,
-          lien_position:       formData.lienPosition||'First Lien',
-          refi_type:           formData.refiType||null,
-          cash_out_purpose:    formData.cashOutPurpose||null,
-          incomes_json:        JSON.stringify(formData.incomes     || []),
-          assets_json:         JSON.stringify(formData.assets      || []),
-          liabilities_json:    JSON.stringify(formData.liabilities || []),
-          reos_json:           JSON.stringify(formData.reos        || []),
-        };
-        const existing = await db.form1003.getByLoan(loan.id).catch(()=>null);
-        if (existing?.id) {
-          // Do NOT swallow this. A failed save here previously looked like
-          // success and the data vanished on reload.
-          await db.form1003.update(existing.id, payload)
-            .catch(err => { console.error('[autoSave] form1003 save failed:', err); throw err; });
-        }
-        else { await db.form1003.insert(payload).catch(()=>{}); }
-        await saveCoborrowers(loan.id, borrowers);
-        refreshHoi(loan.id);   // the address may just have become complete → estimate; or a quote may have locked it
+          he_mortgage_pres: parseFloat(fd.mortPres) || null,
+          he_mortgage_prop: parseFloat(fd.mortProp) || null,
+          he_other_loans_pres: parseFloat(fd.otherLoans) || null,
+          he_other_loans_prop: parseFloat(fd.otherBPres) || null,
+          he_hazard_pres: parseFloat(fd.hazPres) || null,
+          he_hazard_prop: parseFloat(fd.hazProp) || null,
+          he_taxes_pres: parseFloat(fd.taxPres) || null,
+          he_taxes_prop: parseFloat(fd.taxProp) || null,
+          he_mi_pres: parseFloat(fd.miPres) || null,
+          he_mi_prop: parseFloat(fd.miProp) || null,
+          he_hoa_pres: parseFloat(fd.hoaPres) || null,
+          he_hoa_prop: parseFloat(fd.hoaProp) || null,
+          he_flood_pres: parseFloat(fd.floodPres) || null,
+          he_flood_prop: parseFloat(fd.floodProp) || null,
+          he_other_pres: parseFloat(fd.otherPres) || null,
+          he_other_prop: parseFloat(fd.otherProp) || null,
+          he_rent_pres: parseFloat(fd.rentPres) || null,
+          dot_land: parseFloat(fd.land) || null,
+          dot_improvements: parseFloat(fd.improvements) || null,
+          dot_refi_balance: parseFloat(fd.refiBalance) || null,
+          dot_cc_debts: parseFloat(fd.ccDebts) || null,
+          dot_closing_costs: parseFloat(fd.closingCosts) || null,
+          dot_discount: parseFloat(fd.discount) || null,
+          dot_financed_fees: parseFloat(fd.financedFees) || null,
+          dot_other_credits: parseFloat(fd.otherCredits) || null,
+          dot_other_loans: parseFloat(fd.otherBProp) || null,
+          manner_title:    fd.mannerTitle    || null,
+          title_held_in:   fd.titleHeldIn    || null,
+          property_rights: fd.propertyRights || null,
+          declarations_json: JSON.stringify(fd.declarations   || []),
+          demographics_json: JSON.stringify(fd.govtMonitoring || []),
+          acreage:             parseFloat(fd.acreage)||null,
+          orig_cost:           parseFloat(fd.origCost)||null,
+          trust_info:          fd.trustInfo||null,
+          vesting_read:        fd.vestingRead||null,
+          lien_position:       fd.lienPosition||'First Lien',
+          refi_type:           fd.refiType||null,
+          cash_out_purpose:    fd.cashOutPurpose||null,
+          incomes_json:        JSON.stringify(fd.incomes     || []),
+          assets_json:         JSON.stringify(fd.assets      || []),
+          liabilities_json:    JSON.stringify(fd.liabilities || []),
+          reos_json:           JSON.stringify(fd.reos        || []),
+    };
+  };
+  const buildCobRows = (bs) => bs.slice(1).filter(x => x && x._slot).map(rowFromCoborrower);
+
+  // ── live sync: what changed on screen since the last load/save ────────────────────────────
+  // savedRef holds the (formData, borrowers) pair as last loaded from or written to the server.
+  // The save sends only the columns whose built value differs from the baseline, so a screen that
+  // is seconds stale can never overwrite what the borrower just entered in their portal.
+  const savedRef = useRef(null);
+  const formRef = useRef(formData); formRef.current = formData;
+  const borrowersRef = useRef(borrowers); borrowersRef.current = borrowers;
+  const savingRef = useRef(false);
+  const sameJson = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+  const diffObj = (cur, base) => { const out = {}; for (const k of Object.keys(cur)) if (!base || !sameJson(cur[k], base[k])) out[k] = cur[k]; return out; };
+  const pendingChanges = (fd, bs) => {
+    const cur = { loan: buildLoanUpdate(fd, bs), form1003: build1003Payload(fd, bs), cobs: buildCobRows(bs) };
+    const base = savedRef.current ? { loan: buildLoanUpdate(savedRef.current.fd, savedRef.current.bs), form1003: build1003Payload(savedRef.current.fd, savedRef.current.bs), cobs: buildCobRows(savedRef.current.bs) } : null;
+    const loanDiff = diffObj(cur.loan, base?.loan);
+    const f1003Diff = diffObj(cur.form1003, base?.form1003);
+    delete loanDiff.dti_front; delete loanDiff.dti_back;                       // derived; sent only alongside real changes
+    if (Object.keys(loanDiff).length) { loanDiff.dti_front = cur.loan.dti_front; loanDiff.dti_back = cur.loan.dti_back; }
+    const cobDiff = cur.cobs.filter(c => !base || !sameJson(c, base.cobs.find(x => x.slot === c.slot)));
+    return { loan: loanDiff, form1003: f1003Diff, coborrowers: cobDiff, any: Object.keys(loanDiff).length + Object.keys(f1003Diff).length + cobDiff.length > 0 };
+  };
+  /** Keys of formData the MLO changed on screen and has not saved (for merging remote changes). */
+  const dirtyFormKeys = (fd, base) => {
+    if (!base) return [];
+    const skip = new Set(['hoiMeta']);
+    return [...new Set([...Object.keys(fd), ...Object.keys(base)])].filter(k => !skip.has(k) && !sameJson(fd[k], base[k]));
+  };
+  const dirtyBorrowerSlots = (bs, base) => (!base ? [] : bs.map((b, i) => (!sameJson(b, base[i]) ? i : -1)).filter(i => i >= 0));
+
+  const saveChanges = async ({ silent } = {}) => {
+    const fd = formRef.current, bs = borrowersRef.current;
+    if (!loan.id) {
+      // Brand-new loan: no row to diff against — write the whole 1003 as before.
+      await db.form1003.insert(build1003Payload(fd, bs));
+      return { nothing: false };
+    }
+    const ch = pendingChanges(fd, bs);
+    if (!ch.any) return { nothing: true };
+    savingRef.current = true;
+    try {
+      let r;
+      try {
+        r = await apiFetch(`/api/sync/${loan.id}/mlo`, { method: 'PUT', body: { loan: ch.loan, form1003: ch.form1003, coborrowers: ch.coborrowers } });
+      } catch (e) {
+        if (e.status !== 404) throw e;
+        // Sync route not mounted (older server): the previous full-row writes.
+        await db.loans.update(loan.id, buildLoanUpdate(fd, bs)).catch(() => {});
+        const existing = await db.form1003.getByLoan(loan.id).catch(() => null);
+        if (existing?.id) await db.form1003.update(existing.id, build1003Payload(fd, bs)); else await db.form1003.insert(build1003Payload(fd, bs)).catch(() => {});
+        await saveCoborrowers(loan.id, bs);
+        r = { nothing: false };
       }
-    } catch (err) {
+      savedRef.current = { fd, bs };
+      if (r.revision) syncRef.current.since = Math.max(syncRef.current.since || 0, r.revision);
+      if (r.loan) onLoanUpdated?.(r.loan);
+      refreshHoi(loan.id);   // the address may just have become complete → estimate; or a quote may have locked it
+      return r;
+    } finally { savingRef.current = false; }
+  };
+
+  // ── live sync: the borrower's saves show up here within seconds, without a reload ───────────
+  const syncRef = useRef({ since: null, merge: null, off: false });
+  const [syncDots, setSyncDots] = useState({});            // tabId -> true: the borrower changed something there since you last looked
+  const [syncConflicts, setSyncConflicts] = useState([]);  // fields both sides changed: [{ key, label, mine, theirs, by }]
+
+  // Every (re)load that lands takes the save baseline. When the reload was caused by a remote
+  // change, the MLO's unsaved edits go back on top, and a field both sides changed is noted.
+  useEffect(() => {
+    if (!loadSeq) return;
+    const fd = formRef.current, bs = borrowersRef.current;
+    const m = syncRef.current.merge; syncRef.current.merge = null;
+    savedRef.current = { fd, bs };
+    if (!m) return;
+    const conflicts = [];
+    const fdPatch = {};
+    for (const k of m.dirtyKeys) {
+      fdPatch[k] = m.fd[k];
+      if (!sameJson(fd[k], m.oldSaved.fd[k])) conflicts.push({ key: k, label: humanizeKey(k), mine: m.fd[k], theirs: fd[k], by: m.by });
+    }
+    const bsPatched = bs.map((b, i) => {
+      if (!m.dirtySlots.includes(i) || !m.bs[i]) return b;
+      const mine = m.bs[i], was = m.oldSaved.bs[i] || {}, out = { ...b };
+      for (const k of Object.keys(mine)) {
+        if (sameJson(mine[k], was[k])) continue;                 // the MLO did not touch this field
+        out[k] = mine[k];
+        if (!sameJson(b[k], was[k])) conflicts.push({ key: `b${i}.${k}`, label: humanizeKey(`b${i}.${k}`), mine: mine[k], theirs: b[k], by: m.by });
+      }
+      return out;
+    });
+    if (Object.keys(fdPatch).length) setFormData(p => ({ ...p, ...fdPatch }));
+    if (m.dirtySlots.length) setBorrowers(bsPatched);
+    if (conflicts.length) setSyncConflicts(c => [...c.filter(x => !conflicts.some(y => y.key === x.key)), ...conflicts]);
+    setTimeout(() => flashChangedInputs(m.domBefore), 80);
+  }, [loadSeq]);
+
+  const applyRemote = async (changes) => {
+    if (savingRef.current || syncRef.current.merge) return false;
+    const fd = formRef.current, bs = borrowersRef.current;
+    const oldSaved = savedRef.current || { fd, bs };
+    const by = changes[changes.length - 1].actor_name || 'The borrower';
+    const sections = [...new Set(changes.flatMap(c => c.sections || []))].filter(x => x !== 'progress');
+    syncRef.current.merge = { fd, bs, oldSaved, dirtyKeys: dirtyFormKeys(fd, oldSaved.fd), dirtySlots: dirtyBorrowerSlots(bs, oldSaved.bs), by, domBefore: snapshotInputs() };
+    let fresh = null; try { fresh = await db.loans.getOne(loan.id); } catch { /* keep the prop */ }
+    if (fresh && fresh.id) onLoanUpdated?.(fresh);
+    await loadLoanData(fresh && fresh.id ? fresh : loan);
+    const tabs = [...new Set(sections.map(x => SYNC_SECTION_TAB[x]).filter(Boolean))];
+    setSyncDots(d => { const n = { ...d }; tabs.forEach(t => { if (t !== activeTabRef.current) n[t] = true; }); return n; });
+    const done = changes.find(c => c.event === 'completed' || c.event === 'submitted');
+    const labels = [...new Set(sections.map(x => SYNC_SECTION_LABEL[x] || x))];
+    if (done) { newArrivalCue({ count: 1 }); showToast(`✓ ${done.actor_name || 'The borrower'} finished their part of the application`); }
+    else if (labels.length) showToast(`${by} updated ${labels.join(', ')}`);
+    return true;
+  };
+
+  useEffect(() => {
+    if (!loan.id) return;
+    syncRef.current.since = null; syncRef.current.off = false;
+    const tick = async () => {
+      if (syncRef.current.off || savingRef.current || syncRef.current.merge) return;
+      try {
+        if (syncRef.current.since == null) { const h = await apiFetch(`/api/sync/${loan.id}/head`); syncRef.current.since = h.head; return; }
+        const r = await apiFetch(`/api/sync/${loan.id}?since=${syncRef.current.since}`);
+        if (r.changes && r.changes.length) { if (await applyRemote(r.changes)) syncRef.current.since = r.head; }
+        else syncRef.current.since = r.head;
+      } catch (e) { if (e.status === 404 || e.status === 403) syncRef.current.off = true; }   // route not mounted / wrong session: stop quietly
+    };
+    return pollWhileVisible(tick, 3000);
+  }, [loan.id]);
+
+  const resolveConflict = (c, takeTheirs) => {
+    if (takeTheirs) {
+      const m = String(c.key).match(/^b(\d+)\.(.+)$/);
+      if (m) setBorrowers(p => p.map((b, i) => i === Number(m[1]) ? { ...b, [m[2]]: c.theirs } : b));
+      else setFormData(p => ({ ...p, [c.key]: c.theirs }));
+    }
+    setSyncConflicts(list => list.filter(x => x.key !== c.key));
+  };
+
+  const autoSave = async () => {
+    setSaving(true);
+    try { await saveChanges({ silent: true }); }
+    catch (err) {
       // Previously swallowed entirely, which is how failed tab-switch saves
       // went unnoticed and data silently reverted on reload.
       console.error('[autoSave] failed:', err);
@@ -2725,6 +2722,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
     { id:'quotes',    label:'Quotes',            icon:'🧾' },
   ];
   const [activeTab, setActiveTab] = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'quotes' ? 'quotes' : 'loan'));
+  const activeTabRef = useRef(activeTab); activeTabRef.current = activeTab;
   const [quotesBadge, setQuotesBadge] = useState(0);
   // Badge for the Quotes tab: new quotes + unread messages. Refreshed every 20 s while the loan is open
   // (the Quotes tab itself polls faster and keeps the badge in step through onBadge).
@@ -2736,29 +2734,13 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   // LTV basis = lesser of purchase price and appraised value (standard
   // mortgage practice, and what Arive does). On a refinance there's no
   // purchase price, so it falls back to appraised value alone.
-  const ltvBasis = (() => {
-    const price = parseFloat(formData.salesPrice) || 0;
-    const appr  = parseFloat(formData.appraisedVal) || 0;
-    if (formData.mortgagePurpose === 'Refinance') return appr;
-    if (price > 0 && appr > 0) return Math.min(price, appr);
-    return price || appr;
-  })();
+  const ltvBasis = calcLtvBasis(formData);
 
   // Auto-calculated P&I from loan amount / rate / term — used as the
   // default when the user hasn't manually overridden it (pmt_first_mortgage
   // empty). Any manual entry wins and is persisted as-is.
-  const autoPI = (() => {
-    const principal = parseFloat(formData.baseLoan) || 0;
-    const annualRate = parseFloat(formData.rate) || 0;
-    const months = parseInt(formData.amortTerm, 10) || 360;
-    if (principal <= 0 || months <= 0) return 0;
-    if (annualRate === 0) return principal / months;
-    const r = annualRate / 100 / 12;
-    return principal * (r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
-  })();
-  const effectivePI = formData.pmt_first_mortgage !== '' && formData.pmt_first_mortgage != null
-    ? (parseFloat(formData.pmt_first_mortgage) || 0)
-    : autoPI;
+  const autoPI = calcAutoPI(formData);
+  const effectivePI = calcEffectivePI(formData);
 
   // ── Documents tab state ──────────────────────────────────────
   const [documents, setDocuments] = useState([]);
@@ -2982,6 +2964,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
   const switchTab = async (newTab) => {
     await autoSave();
     setActiveTab(newTab);
+    setSyncDots(d => { if (!d[newTab]) return d; const n = { ...d }; delete n[newTab]; return n; });
     window.scrollTo({top:0,behavior:'smooth'});
   };
 
@@ -3129,6 +3112,7 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
               cursor:'pointer',display:'flex',alignItems:'center',gap:7,transition:'all .15s',whiteSpace:'nowrap'}}>
             <span>{t.icon}</span>{t.label}
             {t.id==='quotes' && quotesBadge>0 && <span style={{background:'#b91c1c',color:'#fff',borderRadius:10,padding:'0 7px',fontSize:11,fontWeight:700,marginLeft:2}}>{quotesBadge}</span>}
+            {syncDots[t.id] && activeTab!==t.id && <span title="The borrower changed something here" style={{width:8,height:8,borderRadius:'50%',background:'#f59e0b',marginLeft:2,boxShadow:'0 0 0 2px #fef3c7'}}/>}
             {activeTab===t.id && <span style={{width:7,height:7,borderRadius:'50%',background:'var(--accent)',marginLeft:2}}/>}
           </button>
         ))}
@@ -3151,6 +3135,20 @@ function Form1003({ loan, onBack, showToast, onLoanUpdated }) {
         {/* ════════════════════════════
             TAB 1 — LOAN & PROPERTY
         ════════════════════════════ */}
+        {syncConflicts.length > 0 && (
+          <div style={{margin:'14px auto 0',maxWidth:920,background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:'var(--radius-lg)',padding:'10px 14px',fontSize:13}}>
+            <div style={{fontWeight:700,color:'#92400e',marginBottom:6}}>{syncConflicts[0].by} entered values in fields you were also editing — yours are kept on screen until you choose:</div>
+            {syncConflicts.map(c => (
+              <div key={c.key} style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',padding:'4px 0',borderTop:'1px solid #fde68a'}}>
+                <span style={{minWidth:180,fontWeight:600}}>{c.label}</span>
+                <span style={{color:'var(--text-2)'}}>{c.by}: <strong>{fmtSyncVal(c.theirs)}</strong></span>
+                <span style={{color:'var(--text-3)'}}>yours: {fmtSyncVal(c.mine)}</span>
+                <span style={{marginLeft:'auto',display:'flex',gap:6}}>
+                  <button className="btn btn-sm btn-primary" onClick={()=>resolveConflict(c,true)}>Use theirs</button>
+                  <button className="btn btn-sm" onClick={()=>resolveConflict(c,false)}>Keep mine</button>
+                </span>
+              </div>))}
+          </div>)}
         {activeTab==='loan' && <>
           {/* Sub-tabs */}
           <div style={{display:'flex',gap:0,borderBottom:'1px solid var(--border)',marginBottom:24}}>
@@ -4356,12 +4354,15 @@ function LoansPage({ showToast, currentUser }) {
   const [open1003, setOpen1003] = useState(null); // loan object when 1003 is open
 
   useEffect(() => {
-    db.loans.getAll().then(ls => {
+    let first = true;
+    // Every 10 s while the page is open (the list keeps up with borrower saves / status changes).
+    return pollWhileVisible(() => db.loans.getAll().then(ls => {
       setLoans(ls);
+      if (!first) return; first = false;
       // Links in notification e-mails: /?loan=<id>&tab=quotes
       const want = Number(new URLSearchParams(window.location.search).get('loan'));
       if (want) { const l = (ls || []).find(x => x.id === want); if (l) setOpen1003(l); }
-    });
+    }).catch(() => {}), 10000);
   }, []);
 
   const filtered = useMemo(() => {
@@ -6109,7 +6110,7 @@ function InviteControl({ loan, borrowerName, borrowerEmail, showToast }) {
     if (!loan?.id) return;
     apiFetch(`/api/loan-invites/${loan.id}`).then(setSt).catch(() => setSt(null));
   }, [loan?.id]);
-  useEffect(load, [load]);
+  useEffect(() => pollWhileVisible(load, 10000), [load]);   // "Invited / In progress / Borrower finished" keeps up by itself
 
   const status = st?.applicationStatus || loan?.application_status || 'draft';
   const seats = st?.seats || [];
@@ -6572,11 +6573,11 @@ function MloApp() {
   const [tasks, setTasks] = useState([]);
 
   useEffect(() => {
-    if (mloUser) {
-      db.loans.getAll().then(setLoans);
-      db.leads.getAll().then(setLeads);
-      db.tasks.getAll().then(setTasks);
-    }
+    if (!mloUser) return;
+    db.leads.getAll().then(setLeads);
+    db.tasks.getAll().then(setTasks);
+    // Loans feed the Dashboard: refreshed every 10 s so borrower progress / status pills move on their own.
+    return pollWhileVisible(() => { db.loans.getAll().then(setLoans).catch(() => {}); }, 10000);
   }, [mloUser]);
 
   const showToast = useCallback(msg => setToast(msg), []);

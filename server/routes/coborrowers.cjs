@@ -60,6 +60,7 @@ router.put('/:loanId', async (req, res) => {
     }
     const [[{ n }]] = await db.query('SELECT COUNT(*) AS n FROM form_1003_coborrowers WHERE loan_id=?', [loanId]);
     await db.query('UPDATE form_1003_main_borrower SET num_borrowers=? WHERE loan_id=?', [1 + n, loanId]);
+    await db.query('INSERT INTO loan_revisions SET ?', { loan_id: loanId, source: req.user?.type === 'borrower' ? 'borrower' : 'mlo', actor_id: req.user?.id || null, actor_name: req.user?.name || null, sections: 'coborrowers' }).catch(() => {});
     const [rows] = await db.query('SELECT * FROM form_1003_coborrowers WHERE loan_id=? ORDER BY slot', [loanId]);
     res.json(rows.map(out));
   } catch (e) { console.error('[coborrowers] put error:', e.message); res.status(500).json({ error: 'Could not save co-borrowers' }); }
