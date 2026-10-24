@@ -22,6 +22,8 @@ app.use('/api/credit', require('./routes/credit.cjs'));
 app.use('/api/quotes',   require('./routes/quotes.cjs'));
 app.use('/api/provider', require('./routes/provider.cjs'));
 app.use('/api/apply-quotes', require('./routes/apply-quotes.cjs'));
+app.use('/api/sync',       require('./routes/sync.cjs'));
+app.use('/api/apply-sync', require('./routes/sync.cjs'));
 app.use('/api/invites',      require('./routes/invites.cjs'));
 app.use('/api/loan-invites', require('./routes/loan-invites.cjs'));
 app.use('/api/apply',        require('./routes/apply.cjs'));
