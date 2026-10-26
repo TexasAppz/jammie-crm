@@ -50,7 +50,7 @@ async function loadLoan(loanId) {
 async function snapshotFor(loanId) {
   const loan = await loadLoan(loanId);
   if (!loan) return null;
-  const [[main]] = await db.query('SELECT first_nm, last_nm, sp_addr1, sp_unit, sp_city, sp_state, sp_zip FROM form_1003_main_borrower WHERE loan_id=? ORDER BY updated_at DESC, id DESC LIMIT 1', [loanId]).catch(() => [[null]]);
+  const [[main]] = await db.query('SELECT first_nm, last_nm, sp_addr1, sp_unit, sp_city, sp_state, sp_zip FROM form_1003_main_borrower WHERE loan_id=? ORDER BY id LIMIT 1', [loanId]).catch(() => [[null]]);
   const [cobs] = await db.query('SELECT slot, first_nm, last_nm FROM form_1003_coborrowers WHERE loan_id=? ORDER BY slot', [loanId]).catch(() => [[]]);
   const borrowers = [];
   if (main) borrowers.push({ slot: 1, label: 'Borrower', firstName: main.first_nm || '', lastName: main.last_nm || '' });
@@ -60,11 +60,14 @@ async function snapshotFor(loanId) {
     street: main?.sp_addr1 || '', unit: main?.sp_unit || '', city: main?.sp_city || '',
     state: stateCode(main?.sp_state) || String(main?.sp_state || '').trim(), zip: String(main?.sp_zip || '').replace(/\D/g, '').slice(0, 5),
   };
-  if (!property.street && loan.subject_property && loan.subject_property !== 'TBD') {
-    // "77 Oak Ave, Frisco TX 75034" — best-effort split so the readiness check can say what is missing.
+  if ((!property.street || !property.city || !property.state || !property.zip) && loan.subject_property && loan.subject_property !== 'TBD') {
+    // "77 Oak Ave, Frisco TX 75034" — best-effort split, filling ONLY the parts the 1003 row lacks.
+    // (It used to replace all four, which wiped a ZIP the row did have whenever the street was empty.)
     const m = String(loan.subject_property).match(/^(.*?),\s*([^,]+?)\s+([A-Za-z]{2}|[A-Za-z ]+?)\s*(\d{5})?$/);
-    if (m) { property.street = m[1].trim(); property.city = m[2].trim(); property.state = stateCode(m[3]) || m[3].trim(); property.zip = m[4] || ''; }
-    else property.street = String(loan.subject_property).trim();
+    if (m) {
+      property.street = property.street || m[1].trim(); property.city = property.city || m[2].trim();
+      property.state = property.state || stateCode(m[3]) || m[3].trim(); property.zip = property.zip || m[4] || '';
+    } else if (!property.street) property.street = String(loan.subject_property).trim();
   }
   return { loanId: loan.id, loanNumber: loan.loan_number, organizationId: loan.organization_id || 1, borrowers, property };
 }
